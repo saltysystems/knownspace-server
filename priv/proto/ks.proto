@@ -1,0 +1,104 @@
+syntax = "proto2";
+
+package ks;
+
+///////////////////////////////////////////////////////////
+///// CONSTANTS ///////////////////////////////////////////
+///////////////////////////////////////////////////////////
+
+// Actions representing player input                   
+enum input_type {
+    MOVE   = 0;
+    ATTACK = 1;
+}
+
+////////////////////////////////////////////////////////////
+///// SUB MESSAGES /////////////////////////////////////////
+////////////////////////////////////////////////////////////
+message vector2 { 
+    required float x = 1;
+    required float y = 2;
+}
+
+// kinematics - describe the physics of the object     
+message kinematics { 
+    required float rot = 1;
+    required vector2 pos = 2;
+    required vector2 vel = 3;
+}
+
+message intent {
+    required input_type type = 1;
+    // 
+    required kinematics phys = 2;
+    // time in ms since a snapshot was received so we can
+    // accurately assess action targets
+    optional uint32 lerp_ms = 3;
+    // ID of the entity who is committing the action.
+    // IGNORED if received by the server from the client.
+    optional sint64 id = 4;
+}
+
+// instruct the client to make a new entity
+message entity {
+    required sint64 id = 1; // all entities are uniqued
+                            // identified by the server
+    required string name = 2;
+    required kinematics phys = 3;
+    repeated vector2 hitbox = 4;
+    required entity_stats stats = 5;
+}
+
+// entity_stats - describe ship component stats 
+message entity_stats {
+    // TODO: Move me inside of the entity_grid
+    required uint32 max_hp = 1;
+    required uint32 cur_hp = 2;
+}
+
+// instruct the client to make a new transient object
+message projectile {
+    required sint64 owner = 1;
+    required sint64 id = 2;
+    required kinematics phys = 3;
+    required uint32 ttl = 4;
+    repeated vector2 hitbox = 5;
+}
+
+// instruct the client that the following entities collided
+message collision {
+    repeated sint64 id = 1; 
+}
+
+////////////////////////////////////////////////////////////
+///// TOP-LEVEL MESSAGES ///////////////////////////////////
+////////////////////////////////////////////////////////////
+
+// instruct clients of a new entity
+// the ID is IGNORED in the case of client->server
+// c2s -> true
+// s2c -> true
+message join {
+    optional sint64 id = 1;
+    optional string name = 2;
+    optional string zone = 3;
+}
+
+// instruct clients to remove an entity from the zone
+// the ID is IGNORED in the case of client->server
+// c2s -> true
+// s2c -> true
+message part {
+    optional sint64 id = 1;
+}
+
+// (frequently) transfer the current gamestate to clients
+// c2s -> false
+// s2c -> true
+message state_transfer {
+    //required uint64 sequence = 1;
+    repeated intent actions = 1;
+    repeated projectile projectiles = 2;
+    repeated collision collisions = 3;
+    repeated entity entities = 4;
+}
