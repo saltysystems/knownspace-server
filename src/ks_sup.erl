@@ -32,7 +32,7 @@ init([]) ->
     ChildSpecs = [
                   #{
                     id => "ks_zone",
-                    start => {ks_zone, start, [yonder]}
+                    start => {ks_zone, start, []}
                    }
                  ],
     {ok, {SupFlags, ChildSpecs}}.

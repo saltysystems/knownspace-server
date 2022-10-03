@@ -7,7 +7,7 @@ package ks;
 ///////////////////////////////////////////////////////////
 
 // Actions representing player input                   
-enum input_type {
+enum intent_type {
     MOVE   = 0;
     ATTACK = 1;
 }
@@ -25,28 +25,6 @@ message kinematics {
     required float rot = 1;
     required vector2 pos = 2;
     required vector2 vel = 3;
-}
-
-message intent {
-    required input_type type = 1;
-    // 
-    required kinematics phys = 2;
-    // time in ms since a snapshot was received so we can
-    // accurately assess action targets
-    optional uint32 lerp_ms = 3;
-    // ID of the entity who is committing the action.
-    // IGNORED if received by the server from the client.
-    optional sint64 id = 4;
-}
-
-// instruct the client to make a new entity
-message entity {
-    required sint64 id = 1; // all entities are uniqued
-                            // identified by the server
-    required string name = 2;
-    required kinematics phys = 3;
-    repeated vector2 hitbox = 4;
-    required entity_stats stats = 5;
 }
 
 // entity_stats - describe ship component stats 
@@ -74,31 +52,43 @@ message collision {
 ///// TOP-LEVEL MESSAGES ///////////////////////////////////
 ////////////////////////////////////////////////////////////
 
-// instruct clients of a new entity
-// the ID is IGNORED in the case of client->server
-// c2s -> true
-// s2c -> true
+// instruct server to create a new player
 message join {
-    optional sint64 id = 1;
-    optional string name = 2;
-    optional string zone = 3;
+    required string handle = 1;
 }
 
 // instruct clients to remove an entity from the zone
-// the ID is IGNORED in the case of client->server
-// c2s -> true
-// s2c -> true
 message part {
-    optional sint64 id = 1;
+    required sint64 id = 1;
+}
+
+// instruct the client to make a new entity
+message new_entity {
+    required sint64 id = 1; // all entities are uniqued
+                            // identified by the server
+    required string name = 2;
+    required kinematics phys = 3;
+    repeated vector2 hitbox = 4;
+    required entity_stats stats = 5;
+}
+
+// player intent for this tick
+message intent {
+    required intent_type type = 1;
+    required kinematics phys = 2;
+    // time in ms since a snapshot was received so we can
+    // accurately assess action targets
+    optional uint32 lerp_ms = 3;
+    // ID of the entity who is committing the action.
+    // IGNORED if received by the server from the client.
+    optional sint64 id = 4;
 }
 
 // (frequently) transfer the current gamestate to clients
-// c2s -> false
-// s2c -> true
 message state_transfer {
     //required uint64 sequence = 1;
     repeated intent actions = 1;
     repeated projectile projectiles = 2;
     repeated collision collisions = 3;
-    repeated entity entities = 4;
+    //repeated entity entities = 4;
 }

@@ -14,7 +14,7 @@
  {<<"jsone">>,{pkg,<<"jsone">>,<<"1.7.0">>},1},
  {<<"overworld">>,
   {git,"https://github.com/saltysystems/overworld.git",
-       {ref,"dd8b1d3c96a455f3b6ecd14c303c266c84c37186"}},
+       {ref,"436dae50ca4cb68a3c5c61afd71b6427cc4df184"}},
   0},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.8.0">>},2}]}.
 [
