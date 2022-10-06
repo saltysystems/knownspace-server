@@ -26,15 +26,17 @@ start_link() ->
 %%                  type => worker(),       % optional
 %%                  modules => modules()}   % optional
 init([]) ->
-    SupFlags = #{strategy => one_for_all,
-                 intensity => 0,
-                 period => 1},
+    SupFlags = #{
+        strategy => one_for_all,
+        intensity => 0,
+        period => 1
+    },
     ChildSpecs = [
-                  #{
-                    id => "ks_zone",
-                    start => {ks_zone, start, []}
-                   }
-                 ],
+        #{
+            id => "ks_zone",
+            start => {ks_zone, start, []}
+        }
+    ],
     {ok, {SupFlags, ChildSpecs}}.
 
 %% internal functions

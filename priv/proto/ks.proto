@@ -12,6 +12,12 @@ enum intent_type {
     ATTACK = 1;
 }
 
+enum input_type {
+    IMPULSE = 0;
+    ROTATION_LEFT = 1;
+    ROTATION_RIGHT = 2;
+}
+
 ////////////////////////////////////////////////////////////
 ///// SUB MESSAGES /////////////////////////////////////////
 ////////////////////////////////////////////////////////////
@@ -32,6 +38,8 @@ message entity_stats {
     // TODO: Move me inside of the entity_grid
     required uint32 max_hp = 1;
     required uint32 cur_hp = 2;
+    required uint32 rotation_fac = 3;
+    required uint32 speed_fac = 4;
 }
 
 // instruct the client to make a new transient object
@@ -73,22 +81,17 @@ message new_entity {
 }
 
 // player intent for this tick
-message intent {
-    required intent_type type = 1;
-    required kinematics phys = 2;
-    // time in ms since a snapshot was received so we can
-    // accurately assess action targets
-    optional uint32 lerp_ms = 3;
-    // ID of the entity who is committing the action.
-    // IGNORED if received by the server from the client.
-    optional sint64 id = 4;
+message input {
+    // would it be faster/more compact to have a bitfield? probably once the
+    // game is better understood
+    repeated input_type keys = 1;
 }
 
 // (frequently) transfer the current gamestate to clients
 message state_transfer {
     //required uint64 sequence = 1;
-    repeated intent actions = 1;
-    repeated projectile projectiles = 2;
-    repeated collision collisions = 3;
+    //repeated intent actions = 1;
+    repeated projectile projectiles = 1;
+    repeated collision collisions = 2;
     //repeated entity entities = 4;
 }

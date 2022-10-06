@@ -2,21 +2,21 @@
 -behaviour(ow_zone).
 
 -export([
-         init/1,
-         handle_join/3,
-         handle_part/2,
-         handle_rpc/4,
-         handle_tick/2,
-         rpc_info/0
-        ]).
+    init/1,
+    handle_join/3,
+    handle_part/2,
+    handle_rpc/4,
+    handle_tick/2,
+    rpc_info/0
+]).
 
 -export([
-         start/0,
-         stop/0,
-         join/2,
-         part/1,
-         move/2
-        ]).
+    start/0,
+    stop/0,
+    join/2,
+    part/1,
+    input/2
+]).
 
 % Allow instantiating multiple instances of zones
 %-define(SERVER(Name), {via, gproc, {n, l, {?MODULE, Name}}}).
@@ -24,14 +24,14 @@
 % Radial boundary size
 -define(DEFAULT_BOUNDARY, 2500).
 % Set the default buffer depth in milliseconds
--define(DEFAULT_BUFFER_DEPTH, 2000).
+-define(DEFAULT_BUFFER_DEPTH, 1000).
 
-%% API 
+%% API
 
 % Overworld RPCs
 -define(KS_ZONE_JOIN, 16#2001).
 -define(KS_ZONE_PART, 16#2002).
--define(KS_ZONE_MOVE, 16#2003).
+-define(KS_ZONE_INPUT, 16#2003).
 -define(KS_ZONE_XFER, 16#2004).
 -define(KS_ZONE_NEW_ENTITY, 16#2010).
 
@@ -44,15 +44,14 @@ rpc_info() ->
             encoder => ks_pb
         },
         #{
-            opcode => ?KS_ZONE_MOVE,
-            c2s_handler => {?MODULE, move, 2},
-            c2s_proto => intent,
-            encoder => ks_pb
-        },
-        #{
             opcode => ?KS_ZONE_PART,
             c2s_handler => {?MODULE, part, 1},
             s2c_call => part,
+            encoder => ks_pb
+        },
+        #{
+            opcode => ?KS_ZONE_INPUT,
+            c2s_handler => {?MODULE, input, 2},
             encoder => ks_pb
         },
         #{
@@ -71,25 +70,29 @@ rpc_info() ->
 %%% Structures
 %%%====================================================================
 -record(gamestate, {
-          entities = [] :: list(),
-          projectiles = [] :: list(),
-          timestamp :: integer()
-         }).
+    entities = [] :: list(),
+    projectiles = [] :: list(),
+    timestamp :: integer()
+}).
 -type gamestate() :: #gamestate{}.
+
+-record(phys, {
+    pos :: overworld_vector:vector(),
+    vel :: overworld_vector:vector(),
+    rot :: number()
+}).
+-type phys() :: #phys{}.
 
 -record(entity, {
     id :: integer(),
     type :: non_neg_integer(),
     name :: string(),
-    pos :: overworld_vector:vector(),
-    vel :: overworld_vector:vector(),
-    rot :: number(),
+    phys :: phys(),
     hitbox :: [overworld_vector:vector(), ...],
     stats :: any(),
     latency :: number()
 }).
-%-type entity() :: #entity{}.
-
+-type entity() :: #entity{}.
 
 %%%====================================================================
 %%% API
@@ -107,8 +110,8 @@ join(Msg, Session) ->
 part(Session) ->
     ow_zone:part(?SERVER, Session).
 
-move(Msg, Session) ->
-    ow_zone:rpc(?SERVER, move, Msg, Session).
+input(Msg, Session) ->
+    ow_zone:rpc(?SERVER, input, Msg, Session).
 
 %%%====================================================================
 %%% Callbacks
@@ -116,28 +119,33 @@ move(Msg, Session) ->
 init([]) ->
     % Create an empty, new gamestate
     GameState = #gamestate{
-                  timestamp = erlang:system_time(millisecond)
-                  },
+        timestamp = erlang:system_time(millisecond)
+    },
     % Initialize the zone with empty buffers and some default parameters
-    InitialZoneState = 
+    InitialZoneState =
         #{
-            intent_buffer => [],
+            input_buffer => [],
             gamestate_buffer => [GameState],
-            buffer_depth => ?DEFAULT_BUFFER_DEPTH, % milliseconds
-            boundary => ?DEFAULT_BOUNDARY % radial
+            % milliseconds
+            buffer_depth => ?DEFAULT_BUFFER_DEPTH,
+            % radial
+            boundary => ?DEFAULT_BOUNDARY
         },
     {ok, InitialZoneState}.
 
-handle_join(Msg, Session, State = #{ gamestate_buffer := [ GameState | _ ]}) ->
+% TODO: This isn't matching when gamestate buffer is an empty list.
+% Maybe don't trim the buffer by time, but by entry count so there's always
+% some gamestate to be checked against.
+handle_join(Msg, Session, State = #{gamestate_buffer := [GameState | _]}) ->
     ID = ow_session:get_id(Session),
     Handle = maps:get(handle, Msg),
-    logger:notice("Player ~p:~p has joined the server!", [Handle,ID]),
+    logger:notice("Player ~p:~p has joined the server!", [Handle, ID]),
     % Add the handle to the player info
-    PlayerInfo = #{ handle => Handle },
+    PlayerInfo = #{handle => Handle},
     % Add the entity to the current gamestate
     {Entity, _GameState1} = new_entity(Handle, ID, GameState),
     % Let everyone know that the Player has joined
-    Reply = {'@zone', {new_entity, Entity}},
+    Reply = {'@zone', {new_entity, entity_map(Entity)}},
     {Reply, {ok, Session, PlayerInfo}, State}.
 
 handle_part(Session, State) ->
@@ -146,56 +154,57 @@ handle_part(Session, State) ->
     Handle = maps:get(handle, ow_player_reg:get_info(Player)),
     logger:notice("Player ~p:~p has left the server!", [Handle, ID]),
     % Let everyone know that the Player departed
-    Msg = #{ id => ID },
+    Msg = #{id => ID},
     Reply = {'@zone', {part, Msg}},
     {Reply, ok, State}.
 
-handle_rpc(move, Msg, Session, State = #{ intent_buffer := IntentBuffer0 }) ->
+handle_rpc(input, Msg, Session, State = #{input_buffer := InputBuffer}) ->
     % Inject the ID of the player moving into the Msg
     ID = ow_session:get_id(Session),
-    Msg1 = Msg#{ id => ID },
-    % Add the action to the intent queue
-    State1 = State#{ intent_buffer => [ Msg1 | IntentBuffer0 ]},
+    Latency = ow_session:get_latency(Session),
+    Msg1 = Msg#{id => ID, lag => Latency},
+    % Add the action to the input queue
+    State1 = State#{input_buffer => [Msg1 | InputBuffer]},
     {noreply, ok, State1}.
 
-handle_tick(#{ tick_rate := TRate }, State) ->
-    State1 = process_intents(TRate, State),
-    ToXfer = #{ actions => [], 
-                projectiles => [], 
-                collisions => [] 
-              },
+handle_tick(#{tick_rate := TRate}, State) ->
+    State1 = update_gamestate(TRate, State),
+    ToXfer = #{
+        actions => [],
+        projectiles => [],
+        collisions => []
+    },
     Reply = {'@zone', {state_transfer, ToXfer}},
     {Reply, State1}.
-
 
 %%%====================================================================
 %%% Internal Functions
 %%%====================================================================
-process_intents(_, State0 = #{ gamestate_buffer := [] }) ->
-    State0;
-process_intents(TickRate, State0 = #{ buffer_depth := BufDepth } ) ->
-    % Get the current game state
-    GameStateBuffer = maps:get(gamestate_buffer, State0),
-    [ CurrentGameState | _ ] = GameStateBuffer,
-    % Get the queued intents
-    Intents = maps:get(intent_buffer, State0),
+update_gamestate(TickRate, State0) ->
+    % Get the current game state and inputs
+    #{gamestate_buffer := GameStateBuffer, input_buffer := Inputs, buffer_depth := BufDepth} =
+        State0,
+    [CurGameState | _] = GameStateBuffer,
     % Apply *inputs* received from players this tick
-    CurrentGameState1 = apply_entity_intents(Intents, CurrentGameState),
+    CurGameState1 = apply_inputs(Inputs, CurGameState),
     % Apply physics to their respective entities
-    CurrentGameState2 = update_positions(TickRate, CurrentGameState1),
+    CurGameState2 = update_positions(TickRate, CurGameState1),
+    % Update the timestamp
+    CurGameState3 = CurGameState2#gamestate{
+        timestamp = erlang:system_time()
+    },
     % Update the buffer with the final gamestate for this frame
-    GameStateBuffer1 = [ CurrentGameState2 | GameStateBuffer ],
+    GameStateBuffer1 = [CurGameState3 | GameStateBuffer],
     % Trim off any game states we no longer care about
     GameStateBuffer2 = trim_gamestate_buffer(BufDepth, GameStateBuffer1),
-    State0#{ 
-               gamestate_buffer := GameStateBuffer2,
-               intent_buffer := [] % emptied out after applying intents
+    State0#{
+        gamestate_buffer := GameStateBuffer2,
+        % emptied out after applying inputs
+        input_buffer := []
     }.
 
 trim_gamestate_buffer(BufDepth, GameStates) ->
     Now = erlang:system_time(),
-    %io:format("Gamestate is ~p~n", [State]),
-    %io:format("Gamestate buffer is ~p~n", [BufferMap0]),
     Predicate = fun(Item) ->
         SnapshotTime = Item#gamestate.timestamp,
         Delta = Now - SnapshotTime,
@@ -207,50 +216,90 @@ trim_gamestate_buffer(BufDepth, GameStates) ->
 %----------------------------------------------------------------------
 % Entity-specific Internal Functions
 %----------------------------------------------------------------------
-apply_entity_intents([], GameState) ->
-    GameState;
-apply_entity_intents([ Intent | Rest ], GameStates) ->
-    Type = maps:get(type, Intent),
-    ID = maps:get(id, Intent),
-    [ GameState0 | _ ] = GameStates,
-    GameState1 = 
-        case Type of 
-            'MOVE' -> 
-                Phys = maps:get(phys, Intent), 
-                apply_phys_intent(ID, Phys, GameState0);
-            'ATTACK' ->
-                % do nothing for the moment. TODO
-                ok,
-                GameState0
-        end,
-    apply_entity_intents(Rest, GameState1).
+apply_inputs([], GameState0) ->
+    GameState0;
+apply_inputs([Input | Rest], GameState0) ->
+    % This will have a list of maps containing the actual keysequence, ID, and
+    % latency
+    #{id := ID, keys := Keys} = Input,
+    GameState1 = apply_input_per_player(ID, Keys, GameState0),
+    apply_inputs(Rest, GameState1).
 
-
-apply_phys_intent(ID, Phys, GameState) ->
-    % This function will accept any new input received from the player session
-    % and update the server appropriately.  We will start by applying new
-    % Velocity vectors received from the client, but what we really ought to do
-    % is accept only input commands and use those to calculate new
-    % velocity/rotation for the entity. TODO.
-    {_Pos, Vel, Rot} = ow_vector:phys_to_tuple(Phys),
-    EntityInfo = entity_by_id(ID, GameState),
-    % Zero out any tiny velocities to hopefully help with floating point
-    % rounding issues.
-    NewVel = 
-        case overworld_vector:length_squared(Vel) < 0.01 of
-           false ->
-               Vel;
-           true -> 
-               {0, 0}
+apply_input_per_player(ID, Keys, GameState0) ->
+    % We check every key that is applied during the frame
+    % and apply the appropriate physics input
+    ApplyInput =
+        fun(KeyPress, GameState) ->
+            Entity = entity_by_id(ID, GameState),
+            Actions = action_table(),
+            case lists:keyfind(KeyPress, 1, Actions) of
+                {KeyPress, Fun} ->
+                    E1 = Fun(Entity),
+                    update_entity(E1, GameState);
+                false ->
+                    logger:debug("Client sent an unknown action: ~p", [KeyPress]),
+                    GameState
+            end
         end,
-    % Check to see if the player is moving an entity that doesn't exist
-    % Otherwise continue to update the phys
-    Entity2 = EntityInfo#entity{
-        vel = NewVel,
-        rot = Rot
-    },
-    update_entity(Entity2, GameState).
-    
+    lists:foldl(ApplyInput, GameState0, Keys).
+
+action_table() ->
+    [
+        {'IMPULSE', fun(E) ->
+            Phys = E#entity.phys,
+            #{speed_fac := Speed} = E#entity.stats,
+            % Get the current velocity
+            {_Pos, {Xv, Yv}, Rot} = phys_to_tuple(Phys),
+            % 1 keypress = Vector2(0,-1) * Speed
+            Vel1 = {Xv + 0 * Speed, Yv - 1 * Speed},
+            % Rotate the keyed vector by the current rotation
+            {Xv2, Yv2} = ow_vector:rotate(Vel1, Rot),
+            % Subtract (negative Y is up) from the original vector
+            Vel3 = {Xv - Xv2, Yv - Yv2},
+            % Update the entity
+            E#entity{phys = Phys#{vel => Vel3}}
+        end},
+        {'ROTATION_LEFT', fun(E) ->
+            Phys = E#entity.phys,
+            {_Pos, _Vel, Rot} = phys_to_tuple(Phys),
+            #{rotation_fac := RFactor} = E#entity.stats,
+            Rot1 = Rot - RFactor,
+            E#entity{phys = Phys#{rot => Rot1}}
+        end},
+        {'ROTATION_RIGHT', fun(E) ->
+            Phys = E#entity.phys,
+            {_Pos, _Vel, Rot} = phys_to_tuple(Phys),
+            #{rotation_fac := RFactor} = E#entity.stats,
+            Rot1 = Rot + RFactor,
+            E#entity{phys = Phys#{rot => Rot1}}
+        end}
+    ].
+
+%apply_phys_intent(ID, Phys, GameState) ->
+%    % This function will accept any new input received from the player session
+%    % and update the server appropriately.  We will start by applying new
+%    % Velocity vectors received from the client, but what we really ought to do
+%    % is accept only input commands and use those to calculate new
+%    % velocity/rotation for the entity. TODO.
+%    {_Pos, Vel, Rot} = phys_to_tuple(Phys),
+%    EntityInfo = entity_by_id(ID, GameState),
+%    % Zero out any tiny velocities to hopefully help with floating point
+%    % rounding issues.
+%    NewVel =
+%        case overworld_vector:length_squared(Vel) < 0.01 of
+%           false ->
+%               Vel;
+%           true ->
+%               {0, 0}
+%        end,
+%    % Check to see if the player is moving an entity that doesn't exist
+%    % Otherwise continue to update the phys
+%    Entity2 = EntityInfo#entity{
+%        vel = NewVel,
+%        rot = Rot
+%    },
+%    update_entity(Entity2, GameState).
+
 -spec update_positions(integer(), gamestate()) -> gamestate().
 update_positions(TickRate, GS) ->
     % We only do simulation only for entities that can change their velocity
@@ -262,19 +311,17 @@ update_positions(TickRate, GS) ->
     Entities = GS#gamestate.entities,
     % Run the simulation for TickRate
     PositionFun = fun(E) ->
-        % fix me
-        {Xv, Yv} = E#entity.vel,
-        {Xp, Yp} = E#entity.pos,
+        Phys = E#entity.phys,
+        #{pos := {Xp, Yp}, vel := {Xv, Yv}} = Phys,
         TickMs = TickRate / 1000,
         %Latency = get_latency(E),
-
-        % TODO: Re-add latency
+        % TODO: Re-add latency - just call it from the session
         Latency = 0,
         NewPos = {
             Xp + (Xv * (TickMs + Latency)),
             Yp + (Yv * (TickMs + Latency))
         },
-        E#entity{pos = NewPos}
+        E#entity{phys = Phys#{pos => NewPos}}
     end,
     NewEnts = [PositionFun(X) || X <- Entities],
     %case NewEnts of
@@ -284,38 +331,55 @@ update_positions(TickRate, GS) ->
     %end,
     GS#gamestate{entities = NewEnts}.
 
-
 new_entity(Handle, ID, GameState) ->
-    Entity = #{
-        id => ID,
-        name => Handle,
-        phys => 
-            #{ 
-                pos => {0, 0},
-                vel => {0, 0},
+    Entities0 = GameState#gamestate.entities,
+    Entity = #entity{
+        id = ID,
+        name = Handle,
+        phys =
+            #{
+                pos => ow_vector:vector_map({0, 0}),
+                vel => ow_vector:vector_map({0, 0}),
                 rot => 0
             },
-        hitbox => ow_vector:rect_to_map([
-                {-20, -20},
-                {-20, 20},
-                {20, -20},
-                {20, 20}
-                 ]),
-        stats => 
+        hitbox = ow_vector:rect_to_maps([
+            {-20, -20},
+            {-20, 20},
+            {20, -20},
+            {20, 20}
+        ]),
+        stats =
             #{
                 max_hp => 100,
-                cur_hp => 100
+                cur_hp => 100,
+                % rotation / rotation_factor
+                rotation_fac => 20,
+                speed_fac => 5
             }
     },
-    {Entity, update_entity(Entity, GameState)}.
-
+    GameState1 = GameState#gamestate{entities = [Entity | Entities0]},
+    {Entity, GameState1}.
 
 entity_by_id(ID, GameState) ->
     EList = GameState#gamestate.entities,
     lists:keyfind(ID, #entity.id, EList).
 
-
 update_entity(Entity, GameState) ->
-    EList = GameState#gamestate.entities,
     ID = Entity#entity.id,
+    EList = GameState#gamestate.entities,
     lists:keystore(ID, #entity.id, EList, Entity).
+
+phys_to_tuple(#{pos := #{x := Xp, y := Yp}, vel := #{x := Xv, y := Yv}, rot := Rot}) ->
+    Pos = {Xp, Yp},
+    Vel = {Xv, Yv},
+    {Pos, Vel, Rot}.
+
+-spec entity_map(entity()) -> map().
+entity_map(Entity) ->
+    #{
+        id => Entity#entity.id,
+        name => Entity#entity.name,
+        phys => Entity#entity.phys,
+        hitbox => Entity#entity.hitbox,
+        stats => Entity#entity.stats
+    }.
