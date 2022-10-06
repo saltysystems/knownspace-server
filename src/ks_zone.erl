@@ -24,7 +24,7 @@
 % Radial boundary size
 -define(DEFAULT_BOUNDARY, 2500).
 % Set the default buffer depth in milliseconds
--define(DEFAULT_BUFFER_DEPTH, 1000).
+-define(DEFAULT_BUFFER_DEPTH, 50).
 
 %% API
 
@@ -111,7 +111,13 @@ part(Session) ->
     ow_zone:part(?SERVER, Session).
 
 input(Msg, Session) ->
-    ow_zone:rpc(?SERVER, input, Msg, Session).
+    case Msg of
+        <<>> -> 
+            % no input
+            ok;
+        Msg ->
+            ow_zone:rpc(?SERVER, input, Msg, Session)
+    end.
 
 %%%====================================================================
 %%% Callbacks
@@ -133,30 +139,36 @@ init([]) ->
         },
     {ok, InitialZoneState}.
 
-% TODO: This isn't matching when gamestate buffer is an empty list.
-% Maybe don't trim the buffer by time, but by entry count so there's always
-% some gamestate to be checked against.
-handle_join(Msg, Session, State = #{gamestate_buffer := [GameState | _]}) ->
+handle_join(Msg, Session, State = #{gamestate_buffer := [GameState | Rest ]}) ->
     ID = ow_session:get_id(Session),
     Handle = maps:get(handle, Msg),
     logger:notice("Player ~p:~p has joined the server!", [Handle, ID]),
     % Add the handle to the player info
     PlayerInfo = #{handle => Handle},
     % Add the entity to the current gamestate
-    {Entity, _GameState1} = new_entity(Handle, ID, GameState),
+    {Entity, GameState1} = new_entity(Handle, ID, GameState),
     % Let everyone know that the Player has joined
     Reply = {'@zone', {new_entity, entity_map(Entity)}},
-    {Reply, {ok, Session, PlayerInfo}, State}.
+    % We only ever create new gamestates on ticks, so just inject the user into
+    % the current one
+    % TODO: Consider consequences of this :) 
+    GameStateBuffer = [ GameState1 | Rest ],
+    State1 = State#{ gamestate_buffer := GameStateBuffer },
+    {Reply, {ok, Session, PlayerInfo}, State1}.
 
-handle_part(Session, State) ->
+handle_part(Session, State = #{gamestate_buffer := [GameState | Rest ]}) ->
     ID = ow_session:get_id(Session),
     Player = ow_player_reg:get(ID),
     Handle = maps:get(handle, ow_player_reg:get_info(Player)),
     logger:notice("Player ~p:~p has left the server!", [Handle, ID]),
+    % Remove the player from the entities list
+    GameState1 = rm_entity(ID, GameState),
+    GameStateBuffer = [ GameState1 | Rest ],
+    State1 = State#{ gamestate_buffer := GameStateBuffer },
     % Let everyone know that the Player departed
     Msg = #{id => ID},
     Reply = {'@zone', {part, Msg}},
-    {Reply, ok, State}.
+    {Reply, ok, State1}.
 
 handle_rpc(input, Msg, Session, State = #{input_buffer := InputBuffer}) ->
     % Inject the ID of the player moving into the Msg
@@ -216,6 +228,7 @@ trim_gamestate_buffer(BufDepth, GameStates) ->
 %----------------------------------------------------------------------
 % Entity-specific Internal Functions
 %----------------------------------------------------------------------
+-spec apply_inputs(list(), gamestate()) -> gamestate().
 apply_inputs([], GameState0) ->
     GameState0;
 apply_inputs([Input | Rest], GameState0) ->
@@ -231,6 +244,7 @@ apply_input_per_player(ID, Keys, GameState0) ->
     ApplyInput =
         fun(KeyPress, GameState) ->
             Entity = entity_by_id(ID, GameState),
+            io:format("Got keypress. Entity is: ~p~n", [Entity]),
             Actions = action_table(),
             case lists:keyfind(KeyPress, 1, Actions) of
                 {KeyPress, Fun} ->
@@ -245,32 +259,62 @@ apply_input_per_player(ID, Keys, GameState0) ->
 
 action_table() ->
     [
-        {'IMPULSE', fun(E) ->
+        {'IMPULSE_FWD', fun(E) ->
             Phys = E#entity.phys,
-            #{speed_fac := Speed} = E#entity.stats,
+            #{speed_fac := Speed, max_vel := MaxV } = E#entity.stats,
             % Get the current velocity
             {_Pos, {Xv, Yv}, Rot} = phys_to_tuple(Phys),
             % 1 keypress = Vector2(0,-1) * Speed
-            Vel1 = {Xv + 0 * Speed, Yv - 1 * Speed},
+            Vel1 = {0 * Speed, -1 * Speed},
             % Rotate the keyed vector by the current rotation
             {Xv2, Yv2} = ow_vector:rotate(Vel1, Rot),
             % Subtract (negative Y is up) from the original vector
             Vel3 = {Xv - Xv2, Yv - Yv2},
+            % Check to see if the velocity exceeds max velocity
+            Vel4 = 
+                case ow_vector:length_squared(Vel3) > math:pow(MaxV, 2) of
+                    true ->
+                        vector_scale(ow_vector:normalize(Vel3), MaxV);
+                    false ->
+                        Vel3
+                end,
             % Update the entity
-            E#entity{phys = Phys#{vel => Vel3}}
+            E#entity{phys = Phys#{vel => ow_vector:vector_map(Vel4)}}
         end},
-        {'ROTATION_LEFT', fun(E) ->
+        {'IMPULSE_REV', fun(E) ->
+            Phys = E#entity.phys,
+            #{speed_fac := Speed, max_vel := MaxV } = E#entity.stats,
+            % Get the current velocity
+            {_Pos, {Xv, Yv}, Rot} = phys_to_tuple(Phys),
+            % 1 keypress = Vector2(0,-1) * Speed
+            Vel1 = {0 * Speed, 1 * Speed},
+            % Rotate the keyed vector by the current rotation
+            {Xv2, Yv2} = ow_vector:rotate(Vel1, Rot),
+            % Subtract (negative Y is up) from the original vector
+            Vel3 = {Xv - Xv2, Yv - Yv2},
+            % Check to see if the velocity exceeds max velocity
+            Vel4 = 
+                case ow_vector:length_squared(Vel3) > math:pow(MaxV, 2) of
+                    true ->
+                        vector_scale(ow_vector:normalize(Vel3), MaxV);
+                    false ->
+                        Vel3
+                end,
+            % Update the entity
+            E#entity{phys = Phys#{vel => ow_vector:vector_map(Vel4)}}
+        end},
+        {'ROTATE_LEFT', fun(E) ->
             Phys = E#entity.phys,
             {_Pos, _Vel, Rot} = phys_to_tuple(Phys),
             #{rotation_fac := RFactor} = E#entity.stats,
-            Rot1 = Rot - RFactor,
+            Rot1 = Rot - (1.0/RFactor),
             E#entity{phys = Phys#{rot => Rot1}}
         end},
-        {'ROTATION_RIGHT', fun(E) ->
+        {'ROTATE_RIGHT', fun(E) ->
             Phys = E#entity.phys,
             {_Pos, _Vel, Rot} = phys_to_tuple(Phys),
             #{rotation_fac := RFactor} = E#entity.stats,
-            Rot1 = Rot + RFactor,
+            Rot1 = Rot + (1.0/RFactor),
             E#entity{phys = Phys#{rot => Rot1}}
         end}
     ].
@@ -306,13 +350,13 @@ update_positions(TickRate, GS) ->
     % vector. It is assumed all bullets etc undergo simple projectile motion so
     % we just let the client do that calculation locally, but we do check for
     % collisions server side.
-    % If you want to run simulation for projectiles, you'll need to update this
-    % function to understand other record types.
     Entities = GS#gamestate.entities,
     % Run the simulation for TickRate
     PositionFun = fun(E) ->
         Phys = E#entity.phys,
-        #{pos := {Xp, Yp}, vel := {Xv, Yv}} = Phys,
+        #{pos := PosMap, vel := VelMap} = Phys,
+        #{ x := Xv, y := Yv } = VelMap,
+        #{ x := Xp, y := Yp } = PosMap,
         TickMs = TickRate / 1000,
         %Latency = get_latency(E),
         % TODO: Re-add latency - just call it from the session
@@ -321,7 +365,7 @@ update_positions(TickRate, GS) ->
             Xp + (Xv * (TickMs + Latency)),
             Yp + (Yv * (TickMs + Latency))
         },
-        E#entity{phys = Phys#{pos => NewPos}}
+        E#entity{phys = Phys#{pos => ow_vector:vector_map(NewPos)}}
     end,
     NewEnts = [PositionFun(X) || X <- Entities],
     %case NewEnts of
@@ -354,7 +398,8 @@ new_entity(Handle, ID, GameState) ->
                 cur_hp => 100,
                 % rotation / rotation_factor
                 rotation_fac => 20,
-                speed_fac => 5
+                speed_fac => 5,
+                max_vel => 100
             }
     },
     GameState1 = GameState#gamestate{entities = [Entity | Entities0]},
@@ -364,10 +409,19 @@ entity_by_id(ID, GameState) ->
     EList = GameState#gamestate.entities,
     lists:keyfind(ID, #entity.id, EList).
 
+
+-spec update_entity(entity(), gamestate()) -> gamestate().
 update_entity(Entity, GameState) ->
     ID = Entity#entity.id,
     EList = GameState#gamestate.entities,
-    lists:keystore(ID, #entity.id, EList, Entity).
+    EList2 = lists:keystore(ID, #entity.id, EList, Entity),
+    GameState#gamestate{entities=EList2}.
+
+-spec rm_entity(pos_integer(), gamestate()) -> gamestate().
+rm_entity(ID, GameState) ->
+    EList = GameState#gamestate.entities,
+    EList2 = lists:keydelete(ID, #entity.id, EList),
+    GameState#gamestate{entities=EList2}.
 
 phys_to_tuple(#{pos := #{x := Xp, y := Yp}, vel := #{x := Xv, y := Yv}, rot := Rot}) ->
     Pos = {Xp, Yp},
@@ -383,3 +437,6 @@ entity_map(Entity) ->
         hitbox => Entity#entity.hitbox,
         stats => Entity#entity.stats
     }.
+
+vector_scale({X,Y}, Scalar) ->
+    {X*Scalar, Y*Scalar}.

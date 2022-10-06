@@ -13,9 +13,13 @@ enum intent_type {
 }
 
 enum input_type {
-    IMPULSE = 0;
-    ROTATION_LEFT = 1;
-    ROTATION_RIGHT = 2;
+    IMPULSE_FWD = 0;
+    IMPULSE_REV = 1;
+    // may want these
+    // IMPULSE_LEFT = 2;
+    // IMPULSE_RIGHT = 3;
+    ROTATE_LEFT = 4;
+    ROTATE_RIGHT = 5;
 }
 
 ////////////////////////////////////////////////////////////
