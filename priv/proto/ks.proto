@@ -7,11 +7,6 @@ package ks;
 ///////////////////////////////////////////////////////////
 
 // Actions representing player input                   
-enum intent_type {
-    MOVE   = 0;
-    ATTACK = 1;
-}
-
 enum input_type {
     IMPULSE_FWD = 0;
     IMPULSE_REV = 1;
@@ -20,6 +15,11 @@ enum input_type {
     // IMPULSE_RIGHT = 3;
     ROTATE_LEFT = 4;
     ROTATE_RIGHT = 5;
+    ACTION_0 = 10;
+}
+
+enum projectile_type {
+    BALLISTIC = 0;
 }
 
 ////////////////////////////////////////////////////////////
@@ -44,15 +44,7 @@ message entity_stats {
     required uint32 cur_hp = 2;
     required uint32 rotation_fac = 3;
     required uint32 speed_fac = 4;
-}
-
-// instruct the client to make a new transient object
-message projectile {
-    required sint64 owner = 1;
-    required sint64 id = 2;
-    required kinematics phys = 3;
-    required uint32 ttl = 4;
-    repeated vector2 hitbox = 5;
+    required uint32 max_vel = 5;
 }
 
 // instruct the client that the following entities collided
@@ -75,7 +67,7 @@ message part {
 }
 
 // instruct the client to make a new entity
-message new_entity {
+message entity {
     required sint64 id = 1; // all entities are uniqued
                             // identified by the server
     required string name = 2;
@@ -84,18 +76,38 @@ message new_entity {
     required entity_stats stats = 5;
 }
 
+// instruct the client to make a new projectile
+message projectile {
+    required sint64 owner = 1;
+    required sint64 id = 2;
+    required kinematics phys = 3;
+    required uint32 ttl = 4;
+    repeated vector2 hitbox = 5;
+}
+
 // player intent for this tick
 message input {
     // would it be faster/more compact to have a bitfield? probably once the
     // game is better understood
     repeated input_type keys = 1;
+    optional vector2 cursor = 2;
+}
+
+// per-tick updates on the physics for every entity
+message entity_phys {
+  required sint64 id = 1;
+  required kinematics phys = 2;
+}
+
+// Send a full state transfer to a client when joining
+message zone_transfer {
+  repeated entity entities = 1;
+  repeated projectile projectiles = 2;
 }
 
 // (frequently) transfer the current gamestate to clients
-message state_transfer {
-    //required uint64 sequence = 1;
-    //repeated intent actions = 1;
-    repeated projectile projectiles = 1;
-    repeated collision collisions = 2;
-    //repeated entity entities = 4;
+message zone_snapshot {
+    repeated entity_phys phys_updates = 1;
+    repeated projectile projectiles = 2;
+    repeated collision collisions = 3;
 }
