@@ -22,7 +22,7 @@
 %-define(SERVER(Name), {via, gproc, {n, l, {?MODULE, Name}}}).
 -define(SERVER, ?MODULE).
 % Radial boundary size
--define(DEFAULT_BOUNDARY,1024).
+-define(DEFAULT_BOUNDARY, 1024).
 % Set the default buffer depth in milliseconds
 -define(DEFAULT_BUFFER_DEPTH, 50).
 
@@ -75,13 +75,13 @@ rpc_info() ->
 %%%====================================================================
 %%% Structures and Types
 %%%====================================================================
--type direction() :: fwd|rev|left|right.
--type move() :: impulse|rotate.
+-type direction() :: fwd | rev | left | right.
+-type move() :: impulse | rotate.
 -type vector() :: ow_vector:vector().
 -type vector_map() :: #{
-                        x => number(),
-                        y => number()
-                       }.
+    x => number(),
+    y => number()
+}.
 
 -record(gamestate, {
     entities = [] :: list(),
@@ -91,11 +91,11 @@ rpc_info() ->
 }).
 -type gamestate() :: #gamestate{}.
 
--type phys() :: #{ 
-                  pos => vector_map(),
-                  vel => vector_map(),
-                  rot => number()
-                 }.
+-type phys() :: #{
+    pos => vector_map(),
+    vel => vector_map(),
+    rot => number()
+}.
 
 -record(entity, {
     id :: integer(),
@@ -109,12 +109,12 @@ rpc_info() ->
 -type entity() :: #entity{}.
 
 -type entity_map() :: #{
-                        id => integer(),
-                        name => string(),
-                        phys => phys(),
-                        hitbox => [vector_map(), ...],
-                        stats => any()
-                       }.
+    id => integer(),
+    name => string(),
+    phys => phys(),
+    hitbox => [vector_map(), ...],
+    stats => any()
+}.
 
 -record(projectile, {
     id :: integer(),
@@ -146,7 +146,7 @@ part(Session) ->
 
 input(Msg, Session) ->
     case Msg of
-        <<>> -> 
+        <<>> ->
             % no input
             ok;
         Msg ->
@@ -171,11 +171,10 @@ init([]) ->
             % radial
             boundary => ?DEFAULT_BOUNDARY
         },
-    Config = #{ tick_ms => 20 },
+    Config = #{tick_ms => 20},
     {ok, InitialZoneState, Config}.
 
-
-handle_join(Msg, Session, State = #{gamestate_buffer := [GameState | Rest ]}) ->
+handle_join(Msg, Session, State = #{gamestate_buffer := [GameState | Rest]}) ->
     ID = ow_session:get_id(Session),
     Handle = maps:get(handle, Msg),
     logger:notice("Player ~p:~p has joined the server!", [Handle, ID]),
@@ -187,8 +186,8 @@ handle_join(Msg, Session, State = #{gamestate_buffer := [GameState | Rest ]}) ->
     ow_zone:broadcast(self(), {entity, entity_map(Entity)}),
     % Swap the head of the buffer with the new version of the GameState with
     % the new player injected.
-    GameStateBuffer = [ GameState1 | Rest ],
-    State1 = State#{ gamestate_buffer := GameStateBuffer },
+    GameStateBuffer = [GameState1 | Rest],
+    State1 = State#{gamestate_buffer := GameStateBuffer},
     % Build a reply to the player with information about entities who joined
     % before them.
     ZoneXfer = #{
@@ -199,29 +198,27 @@ handle_join(Msg, Session, State = #{gamestate_buffer := [GameState | Rest ]}) ->
     % Reply to the player, update the player registry and the zone state
     {Reply, {ok, Session, PlayerInfo}, State1}.
 
-
-handle_part(Session, State = #{gamestate_buffer := [GameState | Rest ]}) ->
+handle_part(Session, State = #{gamestate_buffer := [GameState | Rest]}) ->
     ID = ow_session:get_id(Session),
     % Check if the player is still in the zone
-    case ow_player_reg:get(ID) of 
+    case ow_player_reg:get(ID) of
         % For now, just check to see if the player is connected. This will need
         % to be revisited when multizone comes online
-        {error, _} -> 
+        {error, _} ->
             % Not in the zone
             {noreply, ok, State};
-        Player -> 
+        Player ->
             Handle = maps:get(handle, ow_player_reg:get_info(Player)),
             logger:notice("Player ~p:~p has left the server!", [Handle, ID]),
             % Remove the player from the entities list
             GameState1 = rm_entity(ID, GameState),
-            GameStateBuffer = [ GameState1 | Rest ],
-            State1 = State#{ gamestate_buffer := GameStateBuffer },
+            GameStateBuffer = [GameState1 | Rest],
+            State1 = State#{gamestate_buffer := GameStateBuffer},
             % Let everyone know that the Player departed
             Msg = #{id => ID},
             Reply = {'@zone', {part, Msg}},
             {Reply, ok, State1}
     end.
-
 
 handle_rpc(input, Msg, Session, State = #{input_buffer := InputBuffer}) ->
     % Inject the ID of the player moving into the Msg
@@ -232,20 +229,19 @@ handle_rpc(input, Msg, Session, State = #{input_buffer := InputBuffer}) ->
     State1 = State#{input_buffer => [Msg1 | InputBuffer]},
     {noreply, ok, State1}.
 
-
 handle_tick(TickMs, State) ->
     Last = maps:get(last_tick, State, TickMs),
     Now = erlang:monotonic_time(),
     Delta = erlang:convert_time_unit(Now - Last, native, millisecond),
     State1 = update_gamestate(Delta, State),
-    #{ gamestate_buffer := [GameState|_Rest]} = State1,
+    #{gamestate_buffer := [GameState | _Rest]} = State1,
     ToXfer = #{
         phys_updates => get_entity_phys(GameState),
         projectiles => new_projectiles_map(GameState),
         collisions => []
     },
     Reply = {'@zone', {zone_snapshot, ToXfer}},
-    {Reply, State1#{ last_tick => Now }}.
+    {Reply, State1#{last_tick => Now}}.
 
 %%%====================================================================
 %%% Internal Functions
@@ -299,18 +295,17 @@ apply_inputs([Input | Rest], GameState0) ->
     #{id := ID, keys := Keys, latency := Latency} = Input,
     % The cursor position is an optional submessage, so give it some
     % semi-sensible default of the origin
-    Cursor = maps:get(cursor, Input, ow_vector:vector_map({0,0})),
+    Cursor = maps:get(cursor, Input, ow_vector:vector_map({0, 0})),
     % It's possible, apparently, to get into a state where the player is gone
     % but the entity record hasn't been yet removed
     case entity_by_id(ID, GameState0) of
-        false -> 
+        false ->
             GameState0;
-        _ -> 
+        _ ->
             GameState1 = update_latency(ID, Latency, GameState0),
             GameState2 = apply_input_per_player(ID, Keys, Cursor, GameState1),
             apply_inputs(Rest, GameState2)
     end.
-
 
 apply_input_per_player(ID, Keys, Cursor, GameState0) ->
     % We check every key that is applied during the frame
@@ -330,49 +325,46 @@ apply_input_per_player(ID, Keys, Cursor, GameState0) ->
         end,
     lists:foldl(ApplyInput, GameState0, Keys).
 
-
 update_latency(ID, Latency, GameState0) ->
     E = entity_by_id(ID, GameState0),
-    E1 = E#entity{latency=Latency},
+    E1 = E#entity{latency = Latency},
     update_entity(E1, GameState0).
-
 
 action_table() ->
     % For now, movement only considers the entity in isolation.  May need to
     % include the current gamestate if we wnat to have rigid body physics
     % interacting with other objects, e.g.
     [
-        {'IMPULSE_FWD', fun(E,_,GS) -> apply_move(impulse, fwd, E, GS) end},
-        {'IMPULSE_REV', fun(E,_,GS) -> apply_move(impulse, rev, E, GS) end},
-        {'IMPULSE_LEFT', fun(E,_,GS) -> apply_move(impulse, left, E, GS) end},
-        {'IMPULSE_RIGHT', fun(E,_,GS) -> apply_move(impulse, right, E, GS) end},
-        {'ROTATE_LEFT', fun(E,_,GS) -> apply_move(rotate, left, E, GS) end},
-        {'ROTATE_RIGHT', fun(E,_,GS) -> apply_move(rotate, right, E, GS) end},
+        {'IMPULSE_FWD', fun(E, _, GS) -> apply_move(impulse, fwd, E, GS) end},
+        {'IMPULSE_REV', fun(E, _, GS) -> apply_move(impulse, rev, E, GS) end},
+        {'IMPULSE_LEFT', fun(E, _, GS) -> apply_move(impulse, left, E, GS) end},
+        {'IMPULSE_RIGHT', fun(E, _, GS) -> apply_move(impulse, right, E, GS) end},
+        {'ROTATE_LEFT', fun(E, _, GS) -> apply_move(rotate, left, E, GS) end},
+        {'ROTATE_RIGHT', fun(E, _, GS) -> apply_move(rotate, right, E, GS) end},
         {'ACTION_0', fun(E, C, GS) -> create_projectile(E, C, GS) end}
     ].
-
 
 -spec apply_move(move(), direction(), entity(), gamestate()) -> gamestate().
 apply_move(Type, Direction, Entity, GameState) ->
     Phys = Entity#entity.phys,
     Stats = Entity#entity.stats,
-    NewPhys = 
+    NewPhys =
         case Type of
-            impulse -> 
+            impulse ->
                 apply_impulse(Direction, Phys, Stats);
-            rotate -> 
+            rotate ->
                 apply_rotation(Direction, Phys, Stats)
         end,
     E1 = Entity#entity{phys = NewPhys},
     update_entity(E1, GameState).
-
 
 new_entity(Handle, ID, GameState) ->
     Entities0 = GameState#gamestate.entities,
     Entity = #entity{
         id = ID,
         name = Handle,
-        type = 0, % TODO: Fix me
+        % TODO: Fix me
+        type = 0,
         phys =
             #{
                 pos => ow_vector:vector_map({rand:uniform(1024), rand:uniform(1024)}),
@@ -399,26 +391,22 @@ new_entity(Handle, ID, GameState) ->
     GameState1 = GameState#gamestate{entities = [Entity | Entities0]},
     {Entity, GameState1}.
 
-
 entity_by_id(ID, GameState) ->
     EList = GameState#gamestate.entities,
     lists:keyfind(ID, #entity.id, EList).
-
 
 -spec update_entity(entity(), gamestate()) -> gamestate().
 update_entity(Entity, GameState) ->
     ID = Entity#entity.id,
     EList = GameState#gamestate.entities,
     EList2 = lists:keystore(ID, #entity.id, EList, Entity),
-    GameState#gamestate{entities=EList2}.
-
+    GameState#gamestate{entities = EList2}.
 
 -spec rm_entity(pos_integer(), gamestate()) -> gamestate().
 rm_entity(ID, GameState) ->
     EList = GameState#gamestate.entities,
     EList2 = lists:keydelete(ID, #entity.id, EList),
-    GameState#gamestate{entities=EList2}.
-
+    GameState#gamestate{entities = EList2}.
 
 -spec entity_map(entity()) -> entity_map().
 entity_map(Entity) ->
@@ -430,25 +418,23 @@ entity_map(Entity) ->
         stats => Entity#entity.stats
     }.
 
-
 -spec get_entities(gamestate()) -> [map()].
 get_entities(GameState) ->
     Entities = GameState#gamestate.entities,
-    F = fun(E, Acc0) -> 
-                EM = entity_map(E),
-                [ EM | Acc0 ]
-        end,
+    F = fun(E, Acc0) ->
+        EM = entity_map(E),
+        [EM | Acc0]
+    end,
     lists:foldl(F, [], Entities).
-
 
 -spec get_entity_phys(gamestate()) -> [map()].
 get_entity_phys(GameState) ->
     Entities = GameState#gamestate.entities,
-    F = fun(E, Acc0) -> 
-                EM = entity_map(E),
-                %#{ id := ID, phys := Phys } = EM,
-                [ maps:with([id, phys], EM) | Acc0 ]
-        end,
+    F = fun(E, Acc0) ->
+        EM = entity_map(E),
+        %#{ id := ID, phys := Phys } = EM,
+        [maps:with([id, phys], EM) | Acc0]
+    end,
     EP = lists:foldl(F, [], Entities),
     EP.
 
@@ -460,15 +446,15 @@ create_projectile(Entity, Cursor, GameState) ->
     % Get the current properties of the entity
     Owner = Entity#entity.id,
     Phys = Entity#entity.phys,
-    {Pos = {Xe,Ye}, _Vel, _Rot} = phys_to_tuple(Phys),
-    #{ x := Xc, y := Yc } = Cursor,
+    {Pos = {Xe, Ye}, _Vel, _Rot} = phys_to_tuple(Phys),
+    #{x := Xc, y := Yc} = Cursor,
     % Draw a line between the cursor position and the entity position.  This is
     % the direction of the projectile.  Normalize this vector and then scale by
     % the speed
     Speed = 300,
     Vel = ow_vector:scale(ow_vector:normalize({Xc - Xe, Yc - Ye}), Speed),
     % Create the projectile object with some defaults filled in
-    Projectile = 
+    Projectile =
         #projectile{
             id = erlang:unique_integer(),
             owner = Owner,
@@ -485,18 +471,17 @@ create_projectile(Entity, Cursor, GameState) ->
                 {10, -10},
                 {10, 10}
             ]),
-            stats = #{}, % Stats are internal, maybe use later
+            % Stats are internal, maybe use later
+            stats = #{},
             ttl = 5000,
             create_time = erlang:system_time()
         },
     queue_projectile(Projectile, GameState).
 
-
 -spec queue_projectile(projectile(), gamestate()) -> gamestate().
 queue_projectile(Projectile, GameState) ->
     Projectiles = GameState#gamestate.new_projectiles,
-    GameState#gamestate{new_projectiles = [ Projectile | Projectiles ]}.
-
+    GameState#gamestate{new_projectiles = [Projectile | Projectiles]}.
 
 -spec dequeue_projectiles(gamestate()) -> gamestate().
 dequeue_projectiles(GameState) ->
@@ -507,12 +492,10 @@ dequeue_projectiles(GameState) ->
         projectiles = SentProjectiles ++ Projectiles
     }.
 
-
 -spec new_projectiles_map(gamestate()) -> list().
 new_projectiles_map(GameState) ->
     ProjToSend = GameState#gamestate.new_projectiles,
     projectiles_map(ProjToSend).
-
 
 -spec all_projectiles_map(gamestate()) -> list().
 all_projectiles_map(GameState) ->
@@ -521,22 +504,21 @@ all_projectiles_map(GameState) ->
     ProjToSend = NewProj ++ CurrentProj,
     projectiles_map(ProjToSend).
 
-
--spec projectiles_map(list()) -> [map(),...].
+-spec projectiles_map(list()) -> [map(), ...].
 projectiles_map(Projectiles) ->
-    ProjMap = 
+    ProjMap =
         fun(P, AccIn) ->
-                PMap = 
-                    #{ owner => P#projectile.owner,
-                       id => P#projectile.id,
-                       phys => P#projectile.phys,
-                       ttl => P#projectile.ttl,
-                       hitbox => P#projectile.hitbox
-                     },
-                [ PMap | AccIn ]
+            PMap =
+                #{
+                    owner => P#projectile.owner,
+                    id => P#projectile.id,
+                    phys => P#projectile.phys,
+                    ttl => P#projectile.ttl,
+                    hitbox => P#projectile.hitbox
+                },
+            [PMap | AccIn]
         end,
     lists:foldl(ProjMap, [], Projectiles).
-
 
 -spec trim_projectiles(gamestate()) -> gamestate().
 trim_projectiles(GameState) ->
@@ -548,34 +530,34 @@ trim_projectiles(GameState) ->
         DeltaMs =< Elem#projectile.ttl
     end,
     Projectiles1 = lists:filter(Predicate, Projectiles0),
-    GameState#gamestate{projectiles = Projectiles1 }.
+    GameState#gamestate{projectiles = Projectiles1}.
 
 %----------------------------------------------------------------------
 % Game Physics
 %----------------------------------------------------------------------
 -spec apply_impulse(direction(), phys(), map()) -> phys().
 apply_impulse(Direction, Phys, Stats) ->
-    #{speed_fac := Speed, max_vel := MaxV } = Stats,
+    #{speed_fac := Speed, max_vel := MaxV} = Stats,
     % Get the current velocity
     {_Pos, {Xv, Yv}, Rot} = phys_to_tuple(Phys),
     % 1 keypress = Vector2(0,-1) * Speed
-    Vel1 = 
+    Vel1 =
         case Direction of
-            fwd -> 
+            fwd ->
                 {0 * Speed, 1 * Speed};
-            rev -> 
+            rev ->
                 {0 * Speed, -1 * Speed};
-            left -> 
+            left ->
                 {-1 * Speed, 0 * Speed};
-            right -> 
+            right ->
                 {1 * Speed, 0 * Speed}
-       end,
+        end,
     % Rotate the keyed vector by the current rotation
     {Xv2, Yv2} = ow_vector:rotate(Vel1, Rot),
     % Subtract (negative Y is up) from the original vector
     Vel3 = {Xv - Xv2, Yv - Yv2},
     % Check to see if the velocity exceeds max velocity
-    Vel4 = 
+    Vel4 =
         case ow_vector:length_squared(Vel3) > math:pow(MaxV, 2) of
             true ->
                 ow_vector:scale(ow_vector:normalize(Vel3), MaxV);
@@ -585,19 +567,17 @@ apply_impulse(Direction, Phys, Stats) ->
     % Update the entity
     Phys#{vel => ow_vector:vector_map(Vel4)}.
 
-
--spec apply_rotation(left|right, phys(), map()) -> phys().
+-spec apply_rotation(left | right, phys(), map()) -> phys().
 apply_rotation(Direction, Phys, Stats) ->
     {_Pos, _Vel, Rot} = phys_to_tuple(Phys),
     #{rotation_fac := RFactor} = Stats,
-    D = 
+    D =
         case Direction of
             right -> 1.0;
             left -> -1.0
         end,
-    Rot1 = Rot + (D/RFactor),
+    Rot1 = Rot + (D / RFactor),
     Phys#{rot => Rot1}.
-
 
 % TODO: Refactor this into a physics module
 -spec update_positions(integer(), gamestate()) -> gamestate().
@@ -605,30 +585,30 @@ update_positions(TickRate, GS) ->
     % Run the simulation for TickRate
     Entities = GS#gamestate.entities,
     Projectiles = GS#gamestate.projectiles,
-    PositionUpdate = 
+    PositionUpdate =
         fun(Phys) ->
             #{pos := PosMap, vel := VelMap} = Phys,
-            #{ x := Xv, y := Yv } = VelMap,
-            #{ x := Xp, y := Yp } = PosMap,
-            TickMs = TickRate/1000,
+            #{x := Xv, y := Yv} = VelMap,
+            #{x := Xp, y := Yp} = PosMap,
+            TickMs = TickRate / 1000,
             NewPos = {
                 Xp + (Xv * TickMs),
-                Yp + (Yv * TickMs) 
+                Yp + (Yv * TickMs)
             },
             Phys#{pos => ow_vector:vector_map(NewPos)}
         end,
-    EntityPhys = 
-        fun(E) -> 
+    EntityPhys =
+        fun(E) ->
             Phys = E#entity.phys,
             E#entity{phys = PositionUpdate(Phys)}
         end,
-    ProjectilePhys = 
+    ProjectilePhys =
         fun(P) ->
             Phys = P#projectile.phys,
             P#projectile{phys = PositionUpdate(Phys)}
         end,
     NewEnts = [EntityPhys(X) || X <- Entities],
-    NewProjs = [ProjectilePhys(X) || X <- Projectiles ],
+    NewProjs = [ProjectilePhys(X) || X <- Projectiles],
     %case NewEnts of
     %    [] -> ok;
     %    _ ->
