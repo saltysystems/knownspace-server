@@ -82,11 +82,13 @@ rpc_info() ->
     x => number(),
     y => number()
 }.
+-type zone_boundary() :: number() | {number(),number(),number(),number()}.
 
 -record(gamestate, {
     entities = [] :: list(),
     projectiles = [] :: list(),
     new_projectiles = [] :: list(),
+    collisions = [] :: list(),
     timestamp :: integer()
 }).
 -type gamestate() :: #gamestate{}.
@@ -238,7 +240,7 @@ handle_tick(TickMs, State) ->
     ToXfer = #{
         phys_updates => get_entity_phys(GameState),
         projectiles => new_projectiles_map(GameState),
-        collisions => []
+        collisions => new_collision_map(GameState)
     },
     Reply = {'@zone', {zone_snapshot, ToXfer}},
     {Reply, State1#{last_tick => Now}}.
@@ -248,23 +250,27 @@ handle_tick(TickMs, State) ->
 %%%====================================================================
 update_gamestate(TickRate, State0) ->
     % Get the current game state and inputs
-    #{gamestate_buffer := GameStateBuffer, input_buffer := Inputs, buffer_depth := BufDepth} =
-        State0,
+    #{gamestate_buffer := GameStateBuffer, 
+      input_buffer := Inputs, 
+      buffer_depth := BufDepth, 
+      boundary := Boundary} = State0,
     [GameState | _] = GameStateBuffer,
     % Move any new projectiles into the projectile list and clear the queue
-    CurGameState0 = dequeue_projectiles(GameState),
+    % also delete any collisions for the new gamestate
+    CurGameState0 = refresh_gamestate(GameState),
     % Apply *inputs* received from players this tick
     CurGameState1 = apply_inputs(Inputs, CurGameState0),
     % Apply physics to their respective entities
     CurGameState2 = update_positions(TickRate, CurGameState1),
+    CurGameState3 = apply_collisions(Boundary, CurGameState2),
     % Update the timestamp
-    CurGameState3 = CurGameState2#gamestate{
+    CurGameState4 = CurGameState3#gamestate{
         timestamp = erlang:system_time()
     },
     % Trim any projectiles that have lived too long
-    CurGameState4 = trim_projectiles(CurGameState3),
+    CurGameState5 = trim_projectiles(CurGameState4),
     % Update the buffer with the final gamestate for this frame
-    GameStateBuffer1 = [CurGameState4 | GameStateBuffer],
+    GameStateBuffer1 = [CurGameState5 | GameStateBuffer],
     % Trim off any game states we no longer care about
     GameStateBuffer2 = trim_gamestate_buffer(BufDepth, GameStateBuffer1),
     State0#{
@@ -282,6 +288,26 @@ trim_gamestate_buffer(BufDepth, GameStates) ->
         T =< BufDepth
     end,
     lists:filter(Predicate, GameStates).
+
+refresh_gamestate(GameState) ->
+    GameState1 = dequeue_projectiles(GameState),
+    GameState1#gamestate{ collisions = [] }.
+
+
+%----------------------------------------------------------------------
+% Data serialization functions
+%----------------------------------------------------------------------
+new_collision_map(#gamestate{ collisions = Collisions}) -> 
+    Fun = 
+        fun({Obj1, Obj2}, AccIn) -> 
+            ID1 = get_id(Obj1),
+            ID2 = get_id(Obj2),
+            [ #{ id => [ ID1, ID2 ] } | AccIn ]
+        end,
+    L = lists:foldl(Fun, [], Collisions),
+    %io:format("Collision map list: ~p~n", [L]),
+    L.
+            
 
 %----------------------------------------------------------------------
 % Entity-specific Internal Functions
@@ -617,6 +643,101 @@ update_positions(TickRate, GS) ->
     GS#gamestate{entities = NewEnts, projectiles = NewProjs}.
 
 %----------------------------------------------------------------------
+% Collision Physics
+%----------------------------------------------------------------------
+-spec apply_collisions(zone_boundary(), gamestate()) -> gamestate().
+apply_collisions(Boundary, GameState) ->
+    Entities = GameState#gamestate.entities,
+    Projectiles = GameState#gamestate.projectiles,
+    % Get the collisions that happened during this frame
+    Collisions = collisions(Boundary, Entities, Projectiles),
+    GameState#gamestate{ collisions = Collisions }.
+
+-spec collisions(zone_boundary(), [entity(), ...], [projectile(), ...]) -> list().
+collisions(Boundary, Entities, Projectiles) ->
+    % Get the board parameters
+    {Xmin, Ymin, Xmax, Ymax} =
+        case Boundary of
+            {X1, Y1, X2, Y2} ->
+                {X1, Y1, X2, Y2};
+            Radius ->
+                % since any given side will be the diameter of the circle, just
+                % set each value to the radius.
+                {-Radius, -Radius, Radius, Radius}
+        end,
+    % Initialize the collision
+    C0 = ow_collision:new(Xmin, Ymin, Xmax, Ymax),
+    % Set up functions for getting the relevant position information
+    EPFun = 
+        fun(E) -> 
+            #{ pos := Pos } =  E#entity.phys,
+            ow_vector:vector_tuple(Pos)
+        end,
+    PPFun = 
+        fun(P) -> 
+            #{ pos := Pos } = P#projectile.phys,
+            ow_vector:vector_tuple(Pos)
+        end,
+    % Add the entities and objects to the quadtree
+    C1 = ow_collision:add_entities(Entities, EPFun, C0),
+    C2 = ow_collision:add_entities(Projectiles, PPFun, C1),
+    % Get bounding box for entities or projectiles
+    BBoxFun =
+        fun
+            (O = #entity{}) ->
+                #{ pos := Pos } = O#entity.phys,
+                Hitbox = O#entity.hitbox,
+                HitboxTr = ow_vector:translate(Hitbox, Pos),
+                % Convert the bounding box to a list of tuples
+                ow_vector:rect_to_tuples(HitboxTr);
+            (O = #projectile{}) ->
+                #{ pos := Pos } = O#projectile.phys,
+                Hitbox = O#projectile.hitbox,
+                HitboxTr = ow_vector:translate(Hitbox, Pos),
+                ow_vector:rect_to_tuples(HitboxTr)
+        end,
+    Collisions0 = lists:flatten([area_entered(O, BBoxFun, C2) || O <- Entities]),
+    % Filter out the collisions between a projectile and its owner.
+    IsOwnerPred = fun({Obj1, Obj2}) ->
+        not is_entity_owner(Obj1, Obj2)
+    end,
+    Collisions1 = lists:filter(IsOwnerPred, Collisions0),
+    % Get rid of collisions where it's two entities. We don't know how to handle that yet. TODO.
+    NotBothEntities = fun({Obj1, Obj2}) ->
+        is_entity(Obj1) and (not is_entity(Obj2)) xor
+            is_entity(Obj2) and (not is_entity(Obj1))
+    end,
+    Collisions2 = lists:filter(NotBothEntities, Collisions1),
+    % Filter out the duplicate pairs
+    ow_util:remove_dups(Collisions2).
+    %% Return the updated GameState and list of collisions
+    %ApplyFun = fun(Collision, InitialState) ->
+    %    apply_collision(Collision, InitialState)
+    %end,
+    %lists:foldl(ApplyFun, GS, Collisions3).
+
+
+area_entered(Object, BoundingBoxFun, QuadTree) ->
+    % For every entity, check an area a bit beyond its position for potential
+    % collisions. TODO: Does this need to be a function of tickrate, latency,
+    % etc ?
+    % TODO: Currently we are most interested in Entity<->Projectile or
+    % Entity<->Entity collisions. Maybe we check Projectile<->[anything]
+    % collisions? Too expensive?
+    {X, Y} = get_position(Object),
+    % Check a significant potential area around the entity. This is NOT the
+    % collision detection, just the POTENTIAL FOR collisions. It's not clear
+    % how to set these values to be reasonable for objects of dynamic size.
+    Left = X - 25,
+    Bottom = Y - 25,
+    Right = X + 25,
+    Top = Y + 25,
+    Results = ow_collision:check_area(
+        {Left, Bottom, Right, Top}, BoundingBoxFun, QuadTree
+    ),
+    [{O1, O2} || {O1, O2, Coll} <- Results, Coll == true].
+
+%----------------------------------------------------------------------
 % Misc. Internal Functions
 %----------------------------------------------------------------------
 
@@ -625,3 +746,39 @@ phys_to_tuple(#{pos := #{x := Xp, y := Yp}, vel := #{x := Xv, y := Yv}, rot := R
     Pos = {Xp, Yp},
     Vel = {Xv, Yv},
     {Pos, Vel, Rot}.
+
+-spec get_position(entity()|projectile()) -> {number(),number()}.
+get_position(Object = #entity{}) ->
+    #{ pos := Pos } = Object#entity.phys,
+    ow_vector:vector_tuple(Pos);
+get_position(Object = #projectile{}) ->
+    #{ pos := Pos } = Object#projectile.phys,
+    ow_vector:vector_tuple(Pos).
+
+get_id(#entity{id = ID}) ->
+    ID;
+get_id(#projectile{id = ID}) ->
+    ID.
+
+is_entity_owner(T = #projectile{}, O = #entity{}) ->
+    % normalize
+    is_entity_owner(O, T);
+is_entity_owner(#entity{id = ID}, #projectile{owner = Owner}) when
+    ID == Owner
+->
+    true;
+is_entity_owner(_, _) ->
+    false.
+
+
+-spec is_entity(any()) -> boolean().
+is_entity(#entity{}) ->
+    true;
+is_entity(_) ->
+    false.
+
+% Sort the collision pairs such that the entity always comes first
+%sort_collision_pair({Obj1 = #projectile{}, Obj2 = #entity{}}) ->
+%    {Obj2, Obj1};
+%sort_collision_pair(Pair = {Obj1 = #entity{}, Obj2 = #projectile{}}) ->
+%    {Obj1, Obj2}

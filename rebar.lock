@@ -6,6 +6,10 @@
   {git,"https://github.com/saltysystems/enet.git",
        {ref,"931192a7335a392c5d0ce3fe89d557037e177719"}},
   0},
+ {<<"erlquad">>,
+  {git,"https://github.com/g-andrade/erlquad",
+       {ref,"66a8512201477311f1993e559bef3ebd9a2348f4"}},
+  1},
  {<<"gdminus">>,{pkg,<<"gdminus">>,<<"1.2.0">>},1},
  {<<"gproc">>,
   {git,"https://github.com/uwiger/gproc.git",
@@ -14,7 +18,7 @@
  {<<"jsone">>,{pkg,<<"jsone">>,<<"1.7.0">>},1},
  {<<"overworld">>,
   {git,"https://github.com/saltysystems/overworld.git",
-       {ref,"a51ad006c7ac37dc07c5cc2fdd337ff26bbb1dea"}},
+       {ref,"5cbddc26574dec920b509bfe9a589d1ef674437c"}},
   0},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.8.0">>},2}]}.
 [
