@@ -42,33 +42,45 @@ rpc_info() ->
             opcode => ?KS_ZONE_JOIN,
             c2s_handler => {?MODULE, join, 2},
             s2c_call => join,
-            encoder => ks_pb
+            encoder => ks_pb,
+            qos => reliable,
+            channel => 0
         },
         #{
             opcode => ?KS_ZONE_PART,
             c2s_handler => {?MODULE, part, 1},
             s2c_call => part,
-            encoder => ks_pb
+            encoder => ks_pb,
+            qos => reliable,
+            channel => 0
         },
         #{
             opcode => ?KS_ZONE_INPUT,
             c2s_handler => {?MODULE, input, 2},
-            encoder => ks_pb
+            encoder => ks_pb,
+            qos => reliable,
+            channel => 0
         },
         #{
             opcode => ?KS_ZONE_XFER,
             s2c_call => zone_transfer,
-            encoder => ks_pb
+            encoder => ks_pb,
+            qos => reliable,
+            channel => 0
         },
         #{
             opcode => ?KS_ZONE_SNAP,
             s2c_call => zone_snapshot,
-            encoder => ks_pb
+            encoder => ks_pb,
+            qos => unsequenced,
+            channel => 1
         },
         #{
             opcode => ?KS_ZONE_ENTITY,
             s2c_call => entity,
-            encoder => ks_pb
+            encoder => ks_pb,
+            qos => reliable,
+            channel => 0
         }
     ].
 
@@ -174,6 +186,8 @@ init([]) ->
             boundary => ?DEFAULT_BOUNDARY
         },
     Config = #{tick_ms => 20},
+    % Start the ECS server. This should be handled by a supervisor 
+    ow_ecs:start_link(zone),
     {ok, InitialZoneState, Config}.
 
 handle_join(Msg, Session, State = #{gamestate_buffer := [GameState | Rest]}) ->
@@ -414,7 +428,14 @@ new_entity(Handle, ID, GameState) ->
             },
         latency = 0
     },
-    GameState1 = GameState#gamestate{entities = [Entity | Entities0]},
+    ow_ecs:add_component("name", Entity#entity.name, ID, zone),
+    ow_ecs:add_component("type", Entity#entity.type, ID, zone),
+    ow_ecs:add_component("phys", Entity#entity.phys, ID, zone),
+    ow_ecs:add_component("hitbox", Entity#entity.hitbox, ID, zone),
+    ow_ecs:add_component("stats", Entity#entity.stats, ID, zone),
+    ow_ecs:add_component("latency", Entity#entity.latency, ID, zone),
+    % Only hold the ID locally
+    GameState1 = GameState#gamestate{entities = [ Entity | Entities0]},
     {Entity, GameState1}.
 
 entity_by_id(ID, GameState) ->
