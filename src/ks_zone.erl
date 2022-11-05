@@ -94,7 +94,7 @@ rpc_info() ->
     x => number(),
     y => number()
 }.
--type zone_boundary() :: number() | {number(),number(),number(),number()}.
+-type zone_boundary() :: number() | {number(), number(), number(), number()}.
 
 -record(gamestate, {
     entities = [] :: list(),
@@ -113,25 +113,26 @@ rpc_info() ->
 
 -type entity() :: #{
     id => integer(),
-    type => non_neg_integer(), % not sent
+    % not sent
+    type => non_neg_integer(),
     name => string(),
     phys => phys(),
     hitbox => [vector_map(), ...],
     stats => any(),
-    latency => number() % not sent
+    % not sent
+    latency => number()
 }.
 
 -type projectile() :: #{
-     id => integer(),
-     owner => integer(),
-     type => non_neg_integer(),
-     phys => phys(),
-     hitbox => [vector_map(), ...],
-     stats => any(),
-     ttl => non_neg_integer(),
-     create_time => integer()
+    id => integer(),
+    owner => integer(),
+    type => non_neg_integer(),
+    phys => phys(),
+    hitbox => [vector_map(), ...],
+    stats => any(),
+    ttl => non_neg_integer(),
+    create_time => integer()
 }.
-
 
 %%%====================================================================
 %%% API
@@ -167,6 +168,7 @@ init([]) ->
         timestamp = erlang:system_time(millisecond)
     },
     % Initialize the zone with empty buffers and some default parameters
+    ECSWorld = zone,
     InitialZoneState =
         #{
             input_buffer => [],
@@ -174,11 +176,12 @@ init([]) ->
             % milliseconds
             buffer_depth => ?DEFAULT_BUFFER_DEPTH,
             % radial
-            boundary => ?DEFAULT_BOUNDARY
+            boundary => ?DEFAULT_BOUNDARY,
+            ecs_world => ECSWorld
         },
     Config = #{tick_ms => 50},
-    % Start the ECS server. This should be handled by a supervisor 
-    ow_ecs:start_link(zone),
+    % Start the ECS server. This should be handled by a supervisor
+    ow_ecs:start_link(ECSWorld),
     {ok, InitialZoneState, Config}.
 
 handle_join(Msg, Session, State = #{gamestate_buffer := [GameState | Rest]}) ->
@@ -256,10 +259,12 @@ handle_tick(TickMs, State) ->
 
 update_gamestate(TickRate, State0) ->
     % Get the current game state and inputs
-    #{gamestate_buffer := GameStateBuffer, 
-      input_buffer := Inputs, 
-      buffer_depth := BufDepth, 
-      boundary := Boundary} = State0,
+    #{
+        gamestate_buffer := GameStateBuffer,
+        input_buffer := Inputs,
+        buffer_depth := BufDepth,
+        boundary := Boundary
+    } = State0,
     [GameState | _] = GameStateBuffer,
     % Move any new projectiles into the projectile list and clear the queue
     % also delete any collisions for the new gamestate
@@ -297,23 +302,21 @@ trim_gamestate_buffer(BufDepth, GameStates) ->
 
 refresh_gamestate(GameState) ->
     GameState1 = dequeue_projectiles(GameState),
-    GameState1#gamestate{ collisions = [] }.
-
+    GameState1#gamestate{collisions = []}.
 
 %----------------------------------------------------------------------
 % Data serialization functions
 %----------------------------------------------------------------------
-new_collision_map(#gamestate{ collisions = Collisions}) -> 
-    Fun = 
-        fun({Obj1, Obj2}, AccIn) -> 
+new_collision_map(#gamestate{collisions = Collisions}) ->
+    Fun =
+        fun({Obj1, Obj2}, AccIn) ->
             ID1 = maps:get(id, Obj1),
             ID2 = maps:get(id, Obj2),
-            [ #{ id => [ ID1, ID2 ] } | AccIn ]
+            [#{id => [ID1, ID2]} | AccIn]
         end,
     L = lists:foldl(Fun, [], Collisions),
     %io:format("Collision map list: ~p~n", [L]),
     L.
-            
 
 %----------------------------------------------------------------------
 % Entity-specific Internal Functions
@@ -378,7 +381,7 @@ action_table() ->
 
 -spec apply_move(move(), direction(), entity(), gamestate()) -> gamestate().
 apply_move(Type, Direction, Entity, GameState) ->
-    #{ phys := Phys, stats := Stats } = Entity,
+    #{phys := Phys, stats := Stats} = Entity,
     NewPhys =
         case Type of
             impulse ->
@@ -418,7 +421,7 @@ new_entity(Handle, ID, GameState) ->
             },
         latency => 0
     },
-    GameState1 = GameState#gamestate{entities = [ Entity | Entities0]},
+    GameState1 = GameState#gamestate{entities = [Entity | Entities0]},
     {Entity, GameState1}.
 
 entity_by_id(ID, GameState) ->
@@ -426,7 +429,7 @@ entity_by_id(ID, GameState) ->
     ks_util:mapfind(ID, id, EList).
 
 -spec update_entity(entity(), gamestate()) -> gamestate().
-update_entity(Entity = #{ id := ID }, GameState) ->
+update_entity(Entity = #{id := ID}, GameState) ->
     EList = GameState#gamestate.entities,
     EList2 = ks_util:mapstore(ID, id, EList, Entity),
     GameState#gamestate{entities = EList2}.
@@ -440,13 +443,13 @@ rm_entity(ID, GameState) ->
 -spec entity_map(entity()) -> entity().
 entity_map(Entity) ->
     Entity.
-    %#{
-    %    id => Entity#entity.id,
-    %    name => Entity#entity.name,
-    %    phys => Entity#entity.phys,
-    %    hitbox => Entity#entity.hitbox,
-    %    stats => Entity#entity.stats
-    %}.
+%#{
+%    id => Entity#entity.id,
+%    name => Entity#entity.name,
+%    phys => Entity#entity.phys,
+%    hitbox => Entity#entity.hitbox,
+%    stats => Entity#entity.stats
+%}.
 
 -spec get_entities(gamestate()) -> [map()].
 get_entities(GameState) ->
@@ -476,14 +479,22 @@ create_projectile(Entity, Cursor, GameState) ->
     % Get the current properties of the entity
     %Owner = Entity#entity.id,
     %Phys = Entity#entity.phys,
-    #{ id := Owner, phys := Phys } = Entity,
+    #{id := Owner, phys := Phys} = Entity,
     {Pos = {Xe, Ye}, _Vel, _Rot} = phys_to_tuple(Phys),
     #{x := Xc, y := Yc} = Cursor,
     % Draw a line between the cursor position and the entity position.  This is
     % the direction of the projectile.  Normalize this vector and then scale by
     % the speed
     Speed = 300,
-    Vel = ow_vector:scale(ow_vector:normalize({Xc - Xe, Yc - Ye}), Speed),
+    Direction = {Xc - Xe, Yc - Ye},
+    % test the length of the direction. if it's ~0 , then make it non-zero so it can be normalized
+    SanitizedDir =
+        case Direction of
+            {0.0, 0.0} -> {0.1, 0.1};
+            {0, 0} -> {1, 1};
+            _ -> Direction
+        end,
+    Vel = ow_vector:scale(ow_vector:normalize(SanitizedDir), Speed),
     % Create the projectile object with some defaults filled in
     Projectile =
         #{
@@ -538,26 +549,26 @@ all_projectiles_map(GameState) ->
 -spec projectiles_map(list()) -> [map(), ...].
 projectiles_map(Projectiles) ->
     Projectiles.
-    %ProjMap =
-    %    fun(P, AccIn) ->
-    %        PMap =
-    %            #{
-    %                owner => P#projectile.owner,
-    %                id => P#projectile.id,
-    %                phys => P#projectile.phys,
-    %                ttl => P#projectile.ttl,
-    %                hitbox => P#projectile.hitbox
-    %            },
-    %        [PMap | AccIn]
-    %    end,
-    %lists:foldl(ProjMap, [], Projectiles).
+%ProjMap =
+%    fun(P, AccIn) ->
+%        PMap =
+%            #{
+%                owner => P#projectile.owner,
+%                id => P#projectile.id,
+%                phys => P#projectile.phys,
+%                ttl => P#projectile.ttl,
+%                hitbox => P#projectile.hitbox
+%            },
+%        [PMap | AccIn]
+%    end,
+%lists:foldl(ProjMap, [], Projectiles).
 
 -spec trim_projectiles(gamestate()) -> gamestate().
 trim_projectiles(GameState) ->
     Projectiles0 = GameState#gamestate.projectiles,
     Predicate = fun(Elem) ->
         Now = erlang:system_time(),
-        #{ create_time := CTime, ttl := TTL } = Elem,
+        #{create_time := CTime, ttl := TTL} = Elem,
         Delta = Now - CTime,
         DeltaMs = erlang:convert_time_unit(Delta, native, millisecond),
         DeltaMs =< TTL
@@ -631,7 +642,7 @@ update_positions(TickRate, GS) ->
             Phys#{pos => ow_vector:vector_map(NewPos)}
         end,
     PhysFun =
-        fun(E = #{ phys := Phys}) ->
+        fun(E = #{phys := Phys}) ->
             E#{phys => PositionUpdate(Phys)}
         end,
     NewEnts = [PhysFun(X) || X <- Entities],
@@ -652,7 +663,7 @@ apply_collisions(Boundary, GameState) ->
     Projectiles = GameState#gamestate.projectiles,
     % Get the collisions that happened during this frame
     Collisions = collisions(Boundary, Entities, Projectiles),
-    GameState#gamestate{ collisions = Collisions }.
+    GameState#gamestate{collisions = Collisions}.
 
 -spec collisions(zone_boundary(), [entity(), ...], [projectile(), ...]) -> list().
 collisions(Boundary, Entities, Projectiles) ->
@@ -669,9 +680,9 @@ collisions(Boundary, Entities, Projectiles) ->
     % Initialize the collision
     C0 = ow_collision:new(Xmin, Ymin, Xmax, Ymax),
     % Set up functions for getting the relevant position information
-    PosFun = 
-        fun(E) -> 
-            #{ phys := #{ pos := Pos }} = E,
+    PosFun =
+        fun(E) ->
+            #{phys := #{pos := Pos}} = E,
             ow_vector:vector_tuple(Pos)
         end,
     % Add the entities and objects to the quadtree
@@ -679,12 +690,11 @@ collisions(Boundary, Entities, Projectiles) ->
     C2 = ow_collision:add_entities(Projectiles, PosFun, C1),
     % Get bounding box for entities or projectiles
     BBoxFun =
-        fun
-            (O) ->
-                #{ phys := #{ pos := Pos }, hitbox := Hitbox } = O,
-                HitboxTr = ow_vector:translate(Hitbox, Pos),
-                % Convert the bounding box to a list of tuples
-                ow_vector:rect_to_tuples(HitboxTr)
+        fun(O) ->
+            #{phys := #{pos := Pos}, hitbox := Hitbox} = O,
+            HitboxTr = ow_vector:translate(Hitbox, Pos),
+            % Convert the bounding box to a list of tuples
+            ow_vector:rect_to_tuples(HitboxTr)
         end,
     Collisions0 = lists:flatten([area_entered(O, BBoxFun, C2) || O <- Entities]),
     % Filter out the collisions between a projectile and its owner.
@@ -702,16 +712,14 @@ collisions(Boundary, Entities, Projectiles) ->
     % Filter out the duplicate pairs
     case Collisions2 of
         [] -> ok;
-        _ ->
-            logger:info("Collisions: ~p", [Collisions2])
+        _ -> logger:info("Collisions: ~p", [Collisions2])
     end,
     ow_util:remove_dups(Collisions2).
-    %% Return the updated GameState and list of collisions
-    %ApplyFun = fun(Collision, InitialState) ->
-    %    apply_collision(Collision, InitialState)
-    %end,
-    %lists:foldl(ApplyFun, GS, Collisions3).
-
+%% Return the updated GameState and list of collisions
+%ApplyFun = fun(Collision, InitialState) ->
+%    apply_collision(Collision, InitialState)
+%end,
+%lists:foldl(ApplyFun, GS, Collisions3).
 
 area_entered(Object, BoundingBoxFun, QuadTree) ->
     % For every entity, check an area a bit beyond its position for potential
@@ -743,23 +751,21 @@ phys_to_tuple(#{pos := #{x := Xp, y := Yp}, vel := #{x := Xv, y := Yv}, rot := R
     Vel = {Xv, Yv},
     {Pos, Vel, Rot}.
 
-
--spec get_position(entity()|projectile()) -> {number(),number()}.
+-spec get_position(entity() | projectile()) -> {number(), number()}.
 get_position(Object) ->
-    #{ phys := #{ pos := Pos } } = Object,
+    #{phys := #{pos := Pos}} = Object,
     ow_vector:vector_tuple(Pos).
 
-
-is_entity_owner(#{owner := Owner}, #{ id := ID}) when ID == Owner  ->
+is_entity_owner(#{owner := Owner}, #{id := ID}) when ID == Owner ->
     true;
 is_entity_owner(#{id := ID}, #{owner := Owner}) when ID == Owner ->
     true;
 is_entity_owner(_, _) ->
     false.
 
-
 -spec is_entity(any()) -> boolean().
-is_entity(#{owner := _ID}) -> % entities can't have owners
+% entities can't have owners
+is_entity(#{owner := _ID}) ->
     false;
 is_entity(_) ->
     true.

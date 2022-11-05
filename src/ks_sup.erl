@@ -28,8 +28,8 @@ start_link() ->
 init([]) ->
     SupFlags = #{
         strategy => one_for_all,
-        intensity => 0,
-        period => 1
+        intensity => 1,
+        period => 5
     },
     ChildSpecs = [
         #{
