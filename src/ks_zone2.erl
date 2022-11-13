@@ -100,7 +100,6 @@ rpc_info() ->
 
 %-type id() :: integer().
 
-
 %%%====================================================================
 %%% API
 %%%====================================================================
@@ -156,8 +155,7 @@ init([]) ->
     ow_ecs:add_system({ks_input, proc_reset, 1}, 200, Query),
     {ok, InitialZoneState, Config}.
 
-
-handle_join(Msg, Session, State = #{ ecs_world := World }) ->
+handle_join(Msg, Session, State = #{ecs_world := World}) ->
     ID = ow_session:get_id(Session),
     Handle = maps:get(handle, Msg),
     logger:notice("Player ~p:~p has joined the server!", [Handle, ID]),
@@ -171,14 +169,13 @@ handle_join(Msg, Session, State = #{ ecs_world := World }) ->
     % before them.
     ZoneXfer = #{
         actors => ks_actor:get_all(World)
-    %    projectiles => all_projectiles_map(GameState)
+        %    projectiles => all_projectiles_map(GameState)
     },
     Reply = {{'@', [ID]}, {zone_transfer, ZoneXfer}},
     % Reply to the player, update the player registry and the zone state
     {Reply, {ok, Session, PlayerInfo}, State}.
 
-
-handle_part(Session, State = #{ ecs_world := World }) ->
+handle_part(Session, State = #{ecs_world := World}) ->
     ID = ow_session:get_id(Session),
     % Check if the player is still in the zone
     case ow_player_reg:get(ID) of
@@ -198,8 +195,7 @@ handle_part(Session, State = #{ ecs_world := World }) ->
             {Reply, ok, State}
     end.
 
-
-handle_rpc(input, Msg, Session, State = #{ ecs_world := World }) ->
+handle_rpc(input, Msg, Session, State = #{ecs_world := World}) ->
     % Inject the ID of the player moving into the Msg
     ID = ow_session:get_id(Session),
     %Latency = ow_session:get_latency(Session),
@@ -208,8 +204,7 @@ handle_rpc(input, Msg, Session, State = #{ ecs_world := World }) ->
     ks_input:insert(Msg, ID, World),
     {noreply, ok, State}.
 
-
-handle_tick(TickMs, State = #{ ecs_world := World }) ->
+handle_tick(TickMs, State = #{ecs_world := World}) ->
     %State1 = update_gamestate(TickMs, State),
     %Snapshot = gamestate_snapshot(State), % TODO
     %#{gamestate_buffer := [ Snapshot | GSBuf ]} = State1,
@@ -231,4 +226,4 @@ handle_tick(TickMs, State = #{ ecs_world := World }) ->
 get_actor_phys(World) ->
     % Get all actors
     ActorMap = ks_actor:get_all(World, map),
-    [ maps:with([id,phys], Actor) || Actor <- ActorMap ].
+    [maps:with([id, phys], Actor) || Actor <- ActorMap].

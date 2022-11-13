@@ -1,6 +1,6 @@
 -module(ks_phys).
 
--export([proc_phys/2,apply_move/4]).
+-export([proc_phys/2, apply_move/4]).
 
 -type direction() :: fwd | rev | left | right.
 -type move() :: impulse | rotate.
@@ -26,29 +26,27 @@ proc_phys(Query, TickMs) ->
     PhysEntities = ow_ecs:match_component(phys, Query),
     update_positions(PhysEntities, TickMs, Query).
 
-
 % Recurse over all of the actors that match the component
 -spec process_actors([ow_ecs:entity()], ow_ecs:query()) -> ok.
 process_actors([], _Query) ->
     ok;
-process_actors([{ID, Components}|Rest], Query) ->
+process_actors([{ID, Components} | Rest], Query) ->
     InputList = ow_ecs:get(input, Components),
     apply_input(InputList, ID, Query),
     process_actors(Rest, Query).
 
-
-% Recurse over all of the inputs buffered this tick. 
+% Recurse over all of the inputs buffered this tick.
 % One optimization may be to do all of the manipulations here and pass the
 % entity data forward  until the final entity update is complete, _then_
 % persist to ETS. Benchmark.
 -spec apply_input(list(), ow_ecs:entity(), ow_ecs:query()) -> ok.
 apply_input([], _ID, _Query) ->
     ok;
-apply_input([Input|Rest], ID, Query) ->
+apply_input([Input | Rest], ID, Query) ->
     Actions = ks_input:key_table(),
     Keys = maps:get(keys, Input),
     Cursor = maps:get(cursor, Input, undefiend),
-    Apply = 
+    Apply =
         fun(KeyPress) ->
             case lists:keyfind(KeyPress, 1, Actions) of
                 {KeyPress, Fun} ->
@@ -61,13 +59,12 @@ apply_input([Input|Rest], ID, Query) ->
     %% Apply the remaining inputs for this actor
     apply_input(Rest, ID, Query).
 
-
 -spec apply_move(move(), direction(), ks_actor:actor(), ow_ecs:query()) -> ok.
 apply_move(Type, Direction, ID, Query) ->
     {ID, Components} = ow_ecs:entity(ID, Query),
     Phys = ow_ecs:get(phys, Components),
     Stats = ow_ecs:get(stats, Components),
-    NewPhys = 
+    NewPhys =
         case Type of
             impulse ->
                 apply_impulse(Direction, Phys, Stats);
@@ -129,7 +126,7 @@ phys_to_tuple(#{pos := #{x := Xp, y := Yp}, vel := #{x := Xv, y := Yv}, rot := R
 -spec update_positions([ow_ecs:entity()], term(), ow_ecs:query()) -> ok.
 update_positions([], _TickMs, _Query) ->
     ok;
-update_positions([{ID, Components}|Rest], TickMs, Query) ->
+update_positions([{ID, Components} | Rest], TickMs, Query) ->
     Phys = ow_ecs:get(phys, Components),
     #{pos := PosMap, vel := VelMap} = Phys,
     #{x := Xv, y := Yv} = VelMap,

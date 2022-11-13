@@ -8,19 +8,20 @@
 
 -spec new(string(), id(), atom()) -> actor().
 new(Handle, ID, World) ->
-    Type = 0, % TBD
+    % TBD
+    Type = 0,
     Phys =
         #{
             pos => ow_vector:vector_map({rand:uniform(1024), rand:uniform(1024)}),
             vel => ow_vector:vector_map({0, 0}),
             rot => 0
-         },
+        },
     Hitbox = ow_vector:rect_to_maps([
-            {-20, -20},
-            {-20, 20},
-            {20, -20},
-            {20, 20}
-        ]),
+        {-20, -20},
+        {-20, 20},
+        {20, -20},
+        {20, 20}
+    ]),
     Stats =
         #{
             max_hp => 100,
@@ -42,27 +43,23 @@ new(Handle, ID, World) ->
     % Always get the actor back from the ETS table
     ow_ecs:entity(ID, Query).
 
-
 -spec map(ow_ecs:entity()) -> map().
 map(Actor) ->
     ow_ecs:to_map(Actor).
 
-
 -spec rm(id(), atom()) -> ok.
 rm(ID, World) ->
     Query = ow_ecs:query(World),
-    ow_ecs:rm_entity(ID, Query). 
-
+    ow_ecs:rm_entity(ID, Query).
 
 -spec update_latency(pos_integer(), id(), atom()) -> ok.
 update_latency(Latency, ID, World) ->
     Query = ow_ecs:query(World),
     ow_ecs:add_component(latency, Latency, ID, Query).
 
-
 -spec get_all(atom(), term()) -> [map()].
 get_all(World, map) ->
-    [ map(Actor) || Actor <- get_all(World) ].
+    [map(Actor) || Actor <- get_all(World)].
 
 -spec get_all(atom()) -> [map()].
 get_all(World) ->

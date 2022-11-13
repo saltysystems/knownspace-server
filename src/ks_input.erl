@@ -21,16 +21,16 @@ insert(Input1, ID, World) ->
     logger:debug("Adding input component to ~p with data ~p", [ID, Input1]),
     % If there's already input, we need to merge it.
     case ow_ecs:try_component(input, ID, Query) of
-        false -> 
+        false ->
             % Just add it
             ow_ecs:add_component(input, [Input1], ID, Query);
         Components ->
             Input0 = ow_ecs:get(input, Components),
-            Input = [ Input1 | Input0 ], 
+            Input = [Input1 | Input0],
             ow_ecs:add_component(input, Input, ID, Query)
     end.
 
 proc_reset(Query) ->
     % Get all entities with input
     E = ow_ecs:match_component(input, Query),
-    [ ow_ecs:del_component(input, ID, Query) || {ID, _} <- E ].
+    [ow_ecs:del_component(input, ID, Query) || {ID, _} <- E].
