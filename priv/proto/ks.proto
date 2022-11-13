@@ -10,9 +10,8 @@ package ks;
 enum input_type {
     IMPULSE_FWD = 0;
     IMPULSE_REV = 1;
-    // may want these
-    // IMPULSE_LEFT = 2;
-    // IMPULSE_RIGHT = 3;
+    IMPULSE_LEFT = 2;
+    IMPULSE_RIGHT = 3;
     ROTATE_LEFT = 4;
     ROTATE_RIGHT = 5;
     ACTION_0 = 10;
@@ -37,9 +36,9 @@ message kinematics {
     required vector2 vel = 3;
 }
 
-// entity_stats - describe ship component stats 
-message entity_stats {
-    // TODO: Move me inside of the entity_grid
+// actor_stats - describe ship component stats 
+message actor_stats {
+    // TODO: Move me inside of the actor_grid
     required uint32 max_hp = 1;
     required uint32 cur_hp = 2;
     required uint32 rotation_fac = 3;
@@ -61,19 +60,19 @@ message join {
     required string handle = 1;
 }
 
-// instruct clients to remove an entity from the zone
+// instruct clients to remove an actor from the zone
 message part {
     required sint64 id = 1;
 }
 
-// instruct the client to make a new entity
-message entity {
+// instruct the client to make a new actor
+message actor {
     required sint64 id = 1; // all entities are uniqued
                             // identified by the server
-    required string name = 2;
+    required string handle = 2;
     required kinematics phys = 3;
     repeated vector2 hitbox = 4;
-    required entity_stats stats = 5;
+    required actor_stats stats = 5;
 }
 
 // instruct the client to make a new projectile
@@ -93,21 +92,21 @@ message input {
     optional vector2 cursor = 2;
 }
 
-// per-tick updates on the physics for every entity
-message entity_phys {
+// per-tick updates on the physics for every actor
+message actor_phys {
   required sint64 id = 1;
   required kinematics phys = 2;
 }
 
 // Send a full state transfer to a client when joining
 message zone_transfer {
-  repeated entity entities = 1;
+  repeated actor entities = 1;
   repeated projectile projectiles = 2;
 }
 
 // (frequently) transfer the current gamestate to clients
 message zone_snapshot {
-    repeated entity_phys phys_updates = 1;
+    repeated actor_phys phys_updates = 1;
     repeated projectile projectiles = 2;
     repeated collision collisions = 3;
 }

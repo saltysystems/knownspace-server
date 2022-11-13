@@ -33,8 +33,8 @@ init([]) ->
     },
     ChildSpecs = [
         #{
-            id => "ks_zone",
-            start => {ks_zone, start, []}
+            id => "ks_zone2",
+            start => {ks_zone2, start, []}
         }
     ],
     {ok, {SupFlags, ChildSpecs}}.
