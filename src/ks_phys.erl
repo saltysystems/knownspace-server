@@ -27,7 +27,7 @@ key_table() ->
     ].
 
 -spec proc_phys(ow_ecs:query(), term()) -> ok.
-proc_phys(Query, #{ tick_ms := TickMs }) ->
+proc_phys(Query, #{tick_ms := TickMs}) ->
     % Match the input and components for any changes this tick
     Actors = ow_ecs:match_components([input, phys], Query),
     % Apply the input for any player who has the input component, then zero out

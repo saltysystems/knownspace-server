@@ -212,7 +212,7 @@ handle_tick(TickMs, State = #{ecs_world := World}) ->
     %#{gamestate_buffer := [ Snapshot | GSBuf ]} = State1,
     % Call systems, feed in relevant zone data if necessary
     ZoneData = maps:with([boundary], State),
-    ow_ecs:proc(World, ZoneData#{ tick_ms => TickMs }),
+    ow_ecs:proc(World, ZoneData#{tick_ms => TickMs}),
     ToXfer = #{
         phys_updates => get_actor_phys(World),
         projectiles => ks_projectile:notify(World),

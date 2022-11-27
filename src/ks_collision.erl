@@ -5,28 +5,27 @@
 notify(World) ->
     Query = ow_ecs:query(World),
     % Lookup all projectile entities that have collisions this tick
-    Projectiles = ow_ecs:match_components([projectile,collision], Query),
+    Projectiles = ow_ecs:match_components([projectile, collision], Query),
     Fun = fun({ProjID, Keys}, Acc) ->
-                  {collision, ActorID} = lists:keyfind(collision, 1, Keys),
-                  [ #{ id => [ProjID, ActorID] } | Acc ]
-          end,
+        {collision, ActorID} = lists:keyfind(collision, 1, Keys),
+        [#{id => [ProjID, ActorID]} | Acc]
+    end,
     Collisions = lists:foldl(Fun, [], Projectiles),
-    case Collisions of 
+    case Collisions of
         [] -> [];
-        C -> 
-            logger:notice("Collision at: ~p~n", [C])
+        C -> logger:notice("Collision at: ~p~n", [C])
     end,
     Collisions.
 
-proc_collision(Query, #{ boundary := Boundary }) ->
-    % Match the phys components 
+proc_collision(Query, #{boundary := Boundary}) ->
+    % Match the phys components
     Entities = ow_ecs:match_components([phys, hitbox], Query),
     % Possibly can simplify this by jus passing the {ID, [Keys]} format to
     % apply collisions and selecting appropriately.
-    EntityMap = [ ow_ecs:to_map(E) || E <- Entities ], 
+    EntityMap = [ow_ecs:to_map(E) || E <- Entities],
     % Calculate collisions and update the Projectile.
     Collisions = apply_collisions(Boundary, EntityMap),
-    [ update_projectile(O1, O2, Query) || {O1,O2} <- Collisions ].
+    [update_projectile(O1, O2, Query) || {O1, O2} <- Collisions].
 
 apply_collisions(_B, []) ->
     [];
@@ -80,11 +79,14 @@ area_entered(Object, BoundingBoxFun, QuadTree) ->
     ),
     [{O1, O2} || {O1, O2, Coll} <- Results, Coll == true].
 
-update_projectile(O1 = #{ actor := true}, O2 = #{ projectile := true}, Query) -> 
+update_projectile(O1 = #{actor := true}, O2 = #{projectile := true}, Query) ->
     % Swap argument order if the Projectile is the 2nd argument
     update_projectile(O2, O1, Query);
-update_projectile(#{ projectile := true, id := ProjectileID, owner := OwnerID}, 
-                 #{ actor := true, id := ActorID}, Query) when OwnerID =/= ActorID -> 
+update_projectile(
+    #{projectile := true, id := ProjectileID, owner := OwnerID},
+    #{actor := true, id := ActorID},
+    Query
+) when OwnerID =/= ActorID ->
     ow_ecs:add_component(collision, ActorID, ProjectileID, Query);
 update_projectile(_, _, _Q) ->
     % Ignore anything else
