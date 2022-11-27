@@ -1,6 +1,6 @@
 -module(ks_phys).
 
--export([proc_phys/2, apply_move/4]).
+-export([proc_phys/2, apply_move/4, phys_to_tuple/1]).
 
 -type direction() :: fwd | rev | left | right.
 -type move() :: impulse | rotate.
@@ -15,8 +15,19 @@
     rot => number()
 }.
 
+-spec key_table() -> list().
+key_table() ->
+    [
+        {'IMPULSE_FWD', fun(ID, _, Q) -> apply_move(impulse, fwd, ID, Q) end},
+        {'IMPULSE_REV', fun(ID, _, Q) -> apply_move(impulse, rev, ID, Q) end},
+        {'IMPULSE_LEFT', fun(ID, _, Q) -> apply_move(impulse, left, ID, Q) end},
+        {'IMPULSE_RIGHT', fun(ID, _, Q) -> apply_move(impulse, right, ID, Q) end},
+        {'ROTATE_LEFT', fun(ID, _, Q) -> apply_move(rotate, left, ID, Q) end},
+        {'ROTATE_RIGHT', fun(ID, _, Q) -> apply_move(rotate, right, ID, Q) end}
+    ].
+
 -spec proc_phys(ow_ecs:query(), term()) -> ok.
-proc_phys(Query, TickMs) ->
+proc_phys(Query, #{ tick_ms := TickMs }) ->
     % Match the input and components for any changes this tick
     Actors = ow_ecs:match_components([input, phys], Query),
     % Apply the input for any player who has the input component, then zero out
@@ -32,32 +43,8 @@ process_actors([], _Query) ->
     ok;
 process_actors([{ID, Components} | Rest], Query) ->
     InputList = ow_ecs:get(input, Components),
-    apply_input(InputList, ID, Query),
+    ks_input:apply(InputList, ID, key_table(), Query),
     process_actors(Rest, Query).
-
-% Recurse over all of the inputs buffered this tick.
-% One optimization may be to do all of the manipulations here and pass the
-% entity data forward  until the final entity update is complete, _then_
-% persist to ETS. Benchmark.
--spec apply_input(list(), ow_ecs:entity(), ow_ecs:query()) -> ok.
-apply_input([], _ID, _Query) ->
-    ok;
-apply_input([Input | Rest], ID, Query) ->
-    Actions = ks_input:key_table(),
-    Keys = maps:get(keys, Input),
-    Cursor = maps:get(cursor, Input, undefiend),
-    Apply =
-        fun(KeyPress) ->
-            case lists:keyfind(KeyPress, 1, Actions) of
-                {KeyPress, Fun} ->
-                    Fun(ID, Cursor, Query);
-                false ->
-                    logger:debug("Client sent unknown action: ~p", [KeyPress])
-            end
-        end,
-    lists:foreach(Apply, Keys),
-    %% Apply the remaining inputs for this actor
-    apply_input(Rest, ID, Query).
 
 -spec apply_move(move(), direction(), ks_actor:actor(), ow_ecs:query()) -> ok.
 apply_move(Type, Direction, ID, Query) ->
