@@ -151,8 +151,10 @@ init([]) ->
     % Get the query obj
     Query = ow_ecs:query(World),
     % Add the systems
-    ow_ecs:add_system({ks_phys, proc_phys, 2}, 100, Query),
-    ow_ecs:add_system({ks_input, proc_reset, 1}, 200, Query),
+    ow_ecs:add_system({ks_phys, proc_phys, 2}, 200, Query),
+    ow_ecs:add_system({ks_projectile, proc_projectile, 1}, 100, Query),
+    ow_ecs:add_system({ks_collision, proc_collision, 2}, 300, Query),
+    ow_ecs:add_system({ks_input, proc_reset, 1}, 900, Query),
     {ok, InitialZoneState, Config}.
 
 handle_join(Msg, Session, State = #{ecs_world := World}) ->
@@ -201,19 +203,20 @@ handle_rpc(input, Msg, Session, State = #{ecs_world := World}) ->
     %Latency = ow_session:get_latency(Session),
     % Update the latency
     %ks_actor:update_latency(Latency, ID, World),
-    ks_input:insert(Msg, ID, World),
+    ks_input:push(Msg, ID, World),
     {noreply, ok, State}.
 
 handle_tick(TickMs, State = #{ecs_world := World}) ->
     %State1 = update_gamestate(TickMs, State),
     %Snapshot = gamestate_snapshot(State), % TODO
     %#{gamestate_buffer := [ Snapshot | GSBuf ]} = State1,
-    % Call systems
-    ow_ecs:proc(World, TickMs),
+    % Call systems, feed in relevant zone data if necessary
+    ZoneData = maps:with([boundary], State),
+    ow_ecs:proc(World, ZoneData#{ tick_ms => TickMs }),
     ToXfer = #{
-        phys_updates => get_actor_phys(World)
-        %projectiles => new_projectiles_map(GameState),
-        %collisions => new_collision_map(GameState)
+        phys_updates => get_actor_phys(World),
+        projectiles => ks_projectile:notify(World),
+        collisions => ks_collision:notify(World)
     },
     Reply = {'@zone', {zone_snapshot, ToXfer}},
     {Reply, State}.
