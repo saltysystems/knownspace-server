@@ -152,6 +152,7 @@ init([]) ->
     Query = ow_ecs:query(World),
     % Add the systems
     ow_ecs:add_system({ks_phys, proc_phys, 2}, 200, Query),
+    ow_ecs:add_system({ks_reactor, proc_reactor, 2}, 900, Query),
     ow_ecs:add_system({ks_projectile, proc_projectile, 1}, 100, Query),
     ow_ecs:add_system({ks_collision, proc_collision, 2}, 300, Query),
     ow_ecs:add_system({ks_input, proc_reset, 1}, 900, Query),
