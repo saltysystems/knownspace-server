@@ -12,12 +12,13 @@
     {10, -10},
     {10, 10}
 ]).
+-define(SHOOT_POWER, 35).
 
 key_table() ->
     % This table is the master list of all input functions along with the
     % associated function that should be applied when pressed
     [
-        {'ACTION_0', fun(ID, C, Q) -> create_projectile(ID, C, Q) end}
+        {'ACTION_0', fun(ID, C, Q) -> maybe_shoot(ID, C, Q) end}
     ].
 
 proc_projectile(Query) ->
@@ -48,12 +49,27 @@ notify(World) ->
 new_projectiles_from_input(Query) ->
     % Match the list of actors that have input this tick and see if any ask to
     % create new projectiles
-    Actors = ow_ecs:match_component(input, Query),
+    Actors = ow_ecs:match_components([input, reactor], Query),
     Fun = fun({ID, Components}) ->
         InputList = ow_ecs:get(input, Components),
         ks_input:apply(InputList, ID, key_table(), Query)
     end,
     lists:foreach(Fun, Actors).
+
+maybe_shoot(Owner, Cursor, Query) ->
+    {Owner, Components} = ow_ecs:entity(Owner, Query),
+    {Charge, Max, Rate} = ow_ecs:get(reactor, Components),
+    if
+        Charge >= ?SHOOT_POWER ->
+            % We have enough juice to shoot. Fire!
+            create_projectile(Owner, Cursor, Query),
+            % Subtract juice from the reactor
+            NewCharge = Charge - ?SHOOT_POWER,
+            ow_ecs:add_component(reactor, {NewCharge, Max, Rate}, Owner, Query);
+        true ->
+            % Not enough juice. Don't fire.
+            ok
+    end.
 
 create_projectile(Owner, Cursor, Query) ->
     {Owner, Components} = ow_ecs:entity(Owner, Query),
