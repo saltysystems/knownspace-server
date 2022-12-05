@@ -152,6 +152,7 @@ init([]) ->
     Query = ow_ecs:query(World),
     % Add the systems
     ow_ecs:add_system({ks_phys, proc_phys, 2}, 200, Query),
+    ow_ecs:add_system({ks_reactor, proc_reactor, 2}, 900, Query),
     ow_ecs:add_system({ks_projectile, proc_projectile, 1}, 100, Query),
     ow_ecs:add_system({ks_collision, proc_collision, 2}, 300, Query),
     ow_ecs:add_system({ks_input, proc_reset, 1}, 900, Query),
@@ -212,7 +213,7 @@ handle_tick(TickMs, State = #{ecs_world := World}) ->
     %#{gamestate_buffer := [ Snapshot | GSBuf ]} = State1,
     % Call systems, feed in relevant zone data if necessary
     ZoneData = maps:with([boundary], State),
-    ow_ecs:proc(World, ZoneData#{ tick_ms => TickMs }),
+    ow_ecs:proc(World, ZoneData#{tick_ms => TickMs}),
     ToXfer = #{
         phys_updates => get_actor_phys(World),
         projectiles => ks_projectile:notify(World),

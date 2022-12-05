@@ -18,7 +18,8 @@ apply([Input | Rest], ID, Actions, Query) ->
                 {KeyPress, Fun} ->
                     Fun(ID, Cursor, Query);
                 false ->
-                    ok % maybe an input not for us
+                    % maybe an input not for us
+                    ok
             end
         end,
     lists:foreach(Apply, KeyList),
