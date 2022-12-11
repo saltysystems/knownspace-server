@@ -58,14 +58,19 @@ new_projectiles_from_input(Query) ->
 
 maybe_shoot(Owner, Cursor, Query) ->
     {Owner, Components} = ow_ecs:entity(Owner, Query),
-    {Charge, Max, Rate} = ow_ecs:get(reactor, Components),
+    ReactorMap = ow_ecs:get(reactor, Components),
+    Charge = maps:get(cur_reactor, ReactorMap),
     if
         Charge >= ?SHOOT_POWER ->
             % We have enough juice to shoot. Fire!
             create_projectile(Owner, Cursor, Query),
             % Subtract juice from the reactor
             NewCharge = Charge - ?SHOOT_POWER,
-            ow_ecs:add_component(reactor, {NewCharge, Max, Rate}, Owner, Query);
+            logger:notice("New Charge is: ~p", [NewCharge]),
+            ow_ecs:add_component(reactor, 
+                                 ReactorMap#{ cur_reactor => NewCharge }, 
+                                 Owner, 
+                                 Query);
         true ->
             % Not enough juice. Don't fire.
             ok

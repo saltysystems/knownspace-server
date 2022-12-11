@@ -135,6 +135,7 @@ init([]) ->
     },
     % Initialize the zone with empty buffers and some default parameters
     World = zone,
+    TickMs = 50,
     InitialZoneState =
         #{
             input_buffer => [],
@@ -143,9 +144,10 @@ init([]) ->
             buffer_depth => ?DEFAULT_BUFFER_DEPTH,
             % radial
             boundary => ?DEFAULT_BOUNDARY,
-            ecs_world => World
+            ecs_world => World,
+            tick_ms => TickMs
         },
-    Config = #{tick_ms => 50},
+    Config = #{tick_ms => TickMs},
     % Start the ECS server. This should be handled by a supervisor
     ow_ecs:start_link(World),
     % Get the query obj
@@ -171,8 +173,9 @@ handle_join(Msg, Session, State = #{ecs_world := World}) ->
     % Build a reply to the player with information about actors who joined
     % before them.
     ZoneXfer = #{
-        actors => ks_actor:get_all(World)
-        %    projectiles => all_projectiles_map(GameState)
+        tick_ms => maps:get(tick_ms, State),
+        actors => ks_actor:get_all(World),
+        projectiles => ks_projectile:notify(World)
     },
     Reply = {{'@', [ID]}, {zone_transfer, ZoneXfer}},
     % Reply to the player, update the player registry and the zone state

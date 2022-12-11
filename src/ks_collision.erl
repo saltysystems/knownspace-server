@@ -1,6 +1,6 @@
 -module(ks_collision).
 
--export([proc_collision/2, notify/1]).
+-export([proc_collision/2, apply_collisions/2, notify/1]).
 
 notify(World) ->
     Query = ow_ecs:query(World),
@@ -11,10 +11,10 @@ notify(World) ->
         [#{id => [ProjID, ActorID]} | Acc]
     end,
     Collisions = lists:foldl(Fun, [], Projectiles),
-    case Collisions of
-        [] -> [];
-        C -> logger:notice("Collision at: ~p~n", [C])
-    end,
+    %case Collisions of
+    %    [] -> [];
+    %    C -> logger:notice("Collision at: ~p~n", [C])
+    %end,
     Collisions.
 
 proc_collision(Query, #{boundary := Boundary}) ->

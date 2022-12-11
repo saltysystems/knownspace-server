@@ -6,9 +6,10 @@
 proc_reactor(Query, _ZoneData) ->
     % Match any entities who have input this tick
     Fun =
-        fun(ID, ComponentValue) ->
-            {Cur, Max, R} = ComponentValue,
-            logger:notice("Reactor charge: ~p", [Cur]),
+        fun(ID, Reactor) ->
+            #{cur_reactor := Cur, 
+              max_reactor := Max,
+              rate_reactor := R} = Reactor,
             Cur1 =
                 if
                     Cur < Max ->
@@ -21,7 +22,7 @@ proc_reactor(Query, _ZoneData) ->
             if
                 Cur =/= Max ->
                     % Changed, so update the table
-                    ow_ecs:add_component(reactor, {Cur1, Max, R}, ID, Query);
+                    ow_ecs:add_component(reactor, Reactor#{ cur_reactor => Cur1 }, ID, Query);
                 true ->
                     ok
             end

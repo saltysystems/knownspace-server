@@ -2,6 +2,10 @@
 [{<<"bbmustache">>,{pkg,<<"bbmustache">>,<<"1.12.1">>},1},
  {<<"cowboy">>,{pkg,<<"cowboy">>,<<"2.9.0">>},1},
  {<<"cowlib">>,{pkg,<<"cowlib">>,<<"2.11.0">>},2},
+ {<<"eflambe">>,
+  {git,"https://github.com/Stratus3D/eflambe.git",
+       {ref,"ad042ab54eb0f2de981d66720acaa8f9c8435e22"}},
+  0},
  {<<"enet">>,
   {git,"https://github.com/saltysystems/enet.git",
        {ref,"7bb67f36d5a6fe4dad7445684139ae3b0454c7c2"}},
@@ -13,9 +17,10 @@
  {<<"gdminus">>,{pkg,<<"gdminus">>,<<"1.2.0">>},1},
  {<<"gproc">>,{pkg,<<"gproc">>,<<"0.9.0">>},1},
  {<<"jsone">>,{pkg,<<"jsone">>,<<"1.7.0">>},1},
+ {<<"meck">>,{pkg,<<"meck">>,<<"0.9.2">>},1},
  {<<"overworld">>,
   {git,"https://github.com/saltysystems/overworld.git",
-       {ref,"48ed9d13de45957a5c793aef479044a88588178b"}},
+       {ref,"4d38cbc08a8cd8d3382450b83f1380d1d02be6ea"}},
   0},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.8.0">>},2}]}.
 [
@@ -26,6 +31,7 @@
  {<<"gdminus">>, <<"B922127F002F0DAF3EAD742E5BCE936F64AB6D6D3149DA934838B5BA389669D8">>},
  {<<"gproc">>, <<"853CCB7805E9ADA25D227A157BA966F7B34508F386A3E7E21992B1B484230699">>},
  {<<"jsone">>, <<"1E3BD7D5DD44BB2EB0797DDDEA1CBF2DDAB8D9F29E499A467CA171C23F5984EA">>},
+ {<<"meck">>, <<"85CCBAB053F1DB86C7CA240E9FC718170EE5BDA03810A6292B5306BF31BAE5F5">>},
  {<<"ranch">>, <<"8C7A100A139FD57F17327B6413E4167AC559FBC04CA7448E9BE9057311597A1D">>}]},
 {pkg_hash_ext,[
  {<<"bbmustache">>, <<"F4320778C31A821A2A664DB8894618ABB79C1AF7BBF7C03C703C8868D9BB09FE">>},
@@ -34,5 +40,6 @@
  {<<"gdminus">>, <<"565A2F0E4BF6A90BC76115CDE418888CDB71EAA4A7D9299E3B817DABF0478D4C">>},
  {<<"gproc">>, <<"587E8AF698CCD3504CF4BA8D90F893EDE2B0F58CABB8A916E2BF9321DE3CF10B">>},
  {<<"jsone">>, <<"A3A33712EE6BC8BE10CFA21C7C425A299DE4C5A8533F9F931E577A6D0E8F5DBD">>},
+ {<<"meck">>, <<"81344F561357DC40A8344AFA53767C32669153355B626EA9FCBC8DA6B3045826">>},
  {<<"ranch">>, <<"49FBCFD3682FAB1F5D109351B61257676DA1A2FDBE295904176D5E521A2DDFE5">>}]}
 ].

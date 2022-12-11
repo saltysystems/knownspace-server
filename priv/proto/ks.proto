@@ -46,6 +46,12 @@ message actor_stats {
     required uint32 max_vel = 5;
 }
 
+message reactor_stats {
+    required uint32 cur_reactor = 1;
+    required uint32 max_reactor = 2;
+    required uint32 rate_reactor = 3;
+}
+
 // instruct the client that the following entities collided
 message collision {
     repeated sint64 id = 1; 
@@ -73,6 +79,7 @@ message actor {
     required kinematics phys = 3;
     repeated vector2 hitbox = 4;
     required actor_stats stats = 5;
+    required reactor_stats reactor = 6;
 }
 
 // instruct the client to make a new projectile
@@ -94,14 +101,15 @@ message input {
 
 // per-tick updates on the physics for every actor
 message actor_phys {
-  required sint64 id = 1;
-  required kinematics phys = 2;
+    required sint64 id = 1;
+    required kinematics phys = 2;
 }
 
 // Send a full state transfer to a client when joining
 message zone_transfer {
-  repeated actor entities = 1;
-  repeated projectile projectiles = 2;
+    required uint32 tick_ms = 1;
+    repeated actor entities = 2;
+    repeated projectile projectiles = 3;
 }
 
 // (frequently) transfer the current gamestate to clients
