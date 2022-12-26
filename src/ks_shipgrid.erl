@@ -53,7 +53,7 @@ add(Coords, Type, Rotation, ParentID, World) ->
                 {group_pivot, Pivot},
                 {group_reactor, Reactor},
                 {group_thrust, Thrust}
-                          ],
+            ],
             ow_ecs:add_components(Components2, ParentID, Query)
     end.
 
@@ -105,44 +105,42 @@ pivot(ID, World) ->
     Normalization = length(WithHitboxes),
     ow_vector:scale(Pivot, 1 / Normalization).
 
-reactor(#{ cur_reactor := Cur }, ID, World) ->
+reactor(#{cur_reactor := Cur}, ID, World) ->
     % Rate at which power is generated
     WithPower = match_subcomponents(power, ID, World),
     F0 = fun(ComponentList, AccIn) ->
         Pow = ow_ecs:get(power, ComponentList),
         Pow + AccIn
-        end,
+    end,
     Power = lists:foldl(F0, 0, WithPower),
     WithCapacity = match_subcomponents(energy_capacity, ID, World),
     F1 = fun(ComponentList, AccIn) ->
         Cap = ow_ecs:get(energy_capacity, ComponentList),
         Cap + AccIn
-        end,
+    end,
     Capacity = lists:foldl(F1, 0, WithCapacity),
-    Current = 
-        if 
+    Current =
+        if
             Cur > Capacity ->
                 Capacity;
             true ->
                 Cur
         end,
-    #{ 
-        cur_reactor  => Current,
-        max_reactor  => Capacity,
+    #{
+        cur_reactor => Current,
+        max_reactor => Capacity,
         rate_reactor => Power
     }.
 
 thrust(ID, World) ->
     WithThrust = match_subcomponents(thrust, ID, World),
     F = fun(ComponentList, AccIn) ->
-                Thrust = ow_ecs:get(thrust, ComponentList),
-                Orientation = ow_ecs:get(orientation, ComponentList),
-                RotatedThrust = rotate_ccw(Thrust, Orientation),
-                lists:zipwith(fun(X, Y) -> X+Y end, RotatedThrust, AccIn)
-        end,
-    lists:foldl(F, [0,0,0,0], WithThrust).
-
-
+        Thrust = ow_ecs:get(thrust, ComponentList),
+        Orientation = ow_ecs:get(orientation, ComponentList),
+        RotatedThrust = rotate_ccw(Thrust, Orientation),
+        lists:zipwith(fun(X, Y) -> X + Y end, RotatedThrust, AccIn)
+    end,
+    lists:foldl(F, [0, 0, 0, 0], WithThrust).
 
 %%-------------------------------------------------------------------
 %% Internal functions
@@ -169,7 +167,7 @@ rotate_cw(List, N) when N < 0 ->
     rotate_ccw(List, -N);
 rotate_cw(List, 0) ->
     List;
-rotate_cw([Head|Tail], Rotations) ->
+rotate_cw([Head | Tail], Rotations) ->
     rotate_cw(Tail ++ [Head], Rotations - 1).
 
 rotate_ccw(List, N) when N < 0 ->
@@ -177,5 +175,5 @@ rotate_ccw(List, N) when N < 0 ->
 rotate_ccw(List, 0) ->
     List;
 rotate_ccw(List, Rotations) ->
-    [Head|Tail] = lists:reverse(List),
-    rotate_ccw([Head|lists:reverse(Tail)], Rotations - 1).
+    [Head | Tail] = lists:reverse(List),
+    rotate_ccw([Head | lists:reverse(Tail)], Rotations - 1).
