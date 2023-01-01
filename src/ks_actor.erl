@@ -32,10 +32,11 @@ new(Handle, ID, World) ->
             max_vel => 400
         },
     Latency = 0,
-    Reactor = #{cur_reactor => 0, 
-                max_reactor => 300, 
-                rate_reactor => 5
-               },
+    Reactor = #{
+        cur_reactor => 0,
+        max_reactor => 300,
+        rate_reactor => 5
+    },
     Query = ow_ecs:query(World),
     ow_ecs:add_component(actor, true, ID, Query),
     ow_ecs:add_component(handle, Handle, ID, Query),
