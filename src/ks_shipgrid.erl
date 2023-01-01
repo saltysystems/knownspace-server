@@ -5,23 +5,56 @@
 % components as used by the actor module
 % @end
 
--export([new/2, add/5, pivot/2, match_subcomponents/3]).
+-export([new/2, del/2, add/5, match_subcomponents/3, map/1]).
 
 -include("modules.hrl").
-% cells
--define(MAX_GRID, 5).
 % px
 -define(CELL_SIZE, 10).
+
+-opaque shipgrid() :: {map(), integer(), atom()}.
+-export_type([shipgrid/0]).
+
+-type vector() :: ow_vector:vector().
+-type rotation() :: 0 | 1 | 2 | 3.
+-type id() :: integer().
 
 %%-------------------------------------------------------------------
 %% Public API
 %%-------------------------------------------------------------------
 
+-spec new(integer(), atom()) -> ok.
 new(ID, World) ->
-    G = ow_grid2d:new(?MAX_GRID, ?MAX_GRID),
+    Grid = ow_sparsegrid:new(),
     Q = ow_ecs:query(World),
-    ow_ecs:add_component(shipgrid, G, ID, Q).
+    % Clean up any old components
+    del(ID, World),
+    % Add the new, clean component
+    ow_ecs:add_component(shipgrid, Grid, ID, Q).
 
+-spec del(integer(), atom()) -> ok.
+del(ID, World) ->
+    Q = ow_ecs:query(World),
+    case ow_ecs:try_component(shipgrid, ID, Q) of
+        false ->
+            ok;
+        Components ->
+            % Get the children and clean them up.
+            Children = ow_ecs:get(children, Components),
+            case Children of
+                false ->
+                    ok;
+                _ ->
+                    F = fun(ChildID) ->
+                        ow_ecs:rm_entity(ChildID, Q)
+                    end,
+                    lists:foreach(F, Children),
+                    ow_ecs:del_component(children, ID, Q)
+            end,
+            % Remove the shipgrid
+            ow_ecs:del_component(shipgrid, ID, Q)
+    end.
+
+-spec add(vector(), atom(), rotation(), id(), atom()) -> ok.
 add(Coords, Type, Rotation, ParentID, World) ->
     Query = ow_ecs:query(World),
     case ow_ecs:try_component(shipgrid, ParentID, Query) of
@@ -33,7 +66,7 @@ add(Coords, Type, Rotation, ParentID, World) ->
             % Instance the new child module and update the grid
             ChildRef = instance_module(Coords, Type, Rotation, ParentID, Query),
             Children2 = [ChildRef | Children],
-            Grid2 = ow_grid2d:put(Coords, ChildRef, Grid),
+            Grid2 = ow_sparsegrid:put(Coords, ChildRef, Grid),
             % Update the entity
             Components = [
                 {shipgrid, Grid2},
@@ -45,17 +78,24 @@ add(Coords, Type, Rotation, ParentID, World) ->
             % be present at the macro level
             Pivot = pivot(ParentID, World),
             % Get the current reactor stats before updating
-            CurReactor = ow_ecs:get(group_reactor, Data, ks_reactor:new()),
+            CurReactor = ow_ecs:get(reactor, Data, ks_reactor:new()),
             Reactor = reactor(CurReactor, ParentID, World),
             Thrust = thrust(ParentID, World),
+            Hull = hull(ParentID, World),
             % Pass another update to the entity with 2nd-order calculated items
             Components2 = [
-                {group_pivot, Pivot},
-                {group_reactor, Reactor},
-                {group_thrust, Thrust}
+                {pivot, Pivot},
+                {reactor, Reactor},
+                {engine, Thrust},
+                {hull, Hull}
             ],
             ow_ecs:add_components(Components2, ParentID, Query)
     end.
+% I'd like to come up with a good boundary where the side-effecty stuff is
+% wrapped..
+%E = ow_ecs:entity(ParentID, Query),
+%FinalGrid = ow_ecs:get(shipgrid, E),
+%{FinalGrid, ParentID, World}.
 
 match_subcomponents(Component, ParentID, World) ->
     Query = ow_ecs:query(World),
@@ -71,7 +111,8 @@ match_subcomponents(Component, ParentID, World) ->
                         false ->
                             false;
                         ChildData ->
-                            {true, ChildData}
+                            % Insert the child ID into the data
+                            {true, [{id, ChildID} | ChildData]}
                     end
                 end,
             lists:filtermap(F, Children)
@@ -104,6 +145,46 @@ pivot(ID, World) ->
     Pivot = lists:foldl(F, {0, 0}, WithHitboxes),
     Normalization = length(WithHitboxes),
     ow_vector:scale(Pivot, 1 / Normalization).
+
+hull(ID, World) ->
+    % This function calculates an outer hull of a collection of 2D polygons
+    % which start out semi-triangularized. By detecting shared edges and
+    % deleting them, we are left with only edges that are on the outside of the
+    % ship.
+    % --
+    % First grab all components on the ship that have a hitbox.
+    WithHitboxes = match_subcomponents(hitbox, ID, World),
+    % Construct a map of edges with the ID of the child component holding the
+    % edge. This map will be fed into collision detection.
+    F = fun(ComponentList, AccIn) ->
+        % Get child ID we inject into the component list
+        ChildID = ow_ecs:get(id, ComponentList),
+        % Get the hitbox
+        Hitbox = ow_ecs:get(hitbox, ComponentList),
+        % Scale the cell by px-per-cell
+        Cell = ow_ecs:get(grid_coords, ComponentList),
+        ScaledCell = ow_vector:scale(Cell, ?CELL_SIZE),
+        % Translate the hitbox by the scaled position
+        THB = ow_vector:translate(Hitbox, ScaledCell),
+        % Calculate edges
+        Edges = ow_vector:edges(THB),
+        G = fun(Edge, Acc) ->
+            % Sort edges as vertices can appear in any order.
+            % TODO: Need to consider whether the vertex order needs to
+            %       be preserved in the final output
+            SortEdge = lists:sort(Edge),
+            % If a duplicate edge is detected, delete it as it must be
+            % a shared edge
+            case maps:is_key(SortEdge, Acc) of
+                true ->
+                    maps:remove(SortEdge, Acc);
+                false ->
+                    Acc#{SortEdge => ChildID}
+            end
+        end,
+        lists:foldl(G, AccIn, Edges)
+    end,
+    lists:foldl(F, #{}, WithHitboxes).
 
 reactor(#{cur_reactor := Cur}, ID, World) ->
     % Rate at which power is generated
@@ -141,6 +222,9 @@ thrust(ID, World) ->
         lists:zipwith(fun(X, Y) -> X + Y end, RotatedThrust, AccIn)
     end,
     lists:foldl(F, [0, 0, 0, 0], WithThrust).
+
+map(_Grid) ->
+    ok.
 
 %%-------------------------------------------------------------------
 %% Internal functions
