@@ -67,10 +67,12 @@ maybe_shoot(Owner, Cursor, Query) ->
             % Subtract juice from the reactor
             NewCharge = Charge - ?SHOOT_POWER,
             logger:notice("New Charge is: ~p", [NewCharge]),
-            ow_ecs:add_component(reactor, 
-                                 ReactorMap#{ cur_reactor => NewCharge }, 
-                                 Owner, 
-                                 Query);
+            ow_ecs:add_component(
+                reactor,
+                ReactorMap#{cur_reactor => NewCharge},
+                Owner,
+                Query
+            );
         true ->
             % Not enough juice. Don't fire.
             ok
