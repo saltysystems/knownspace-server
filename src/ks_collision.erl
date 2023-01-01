@@ -53,10 +53,15 @@ apply_collisions(Boundary, Entities) ->
     % Get bounding box for entities or projectiles
     BBoxFun =
         fun(O) ->
-            #{phys := #{pos := Pos}, hitbox := Hitbox} = O,
-            HitboxTr = ow_vector:translate(Hitbox, Pos),
+            #{phys := #{pos := Pos, rot := Rot}, hitbox := Hitbox} = O,
+            % Rotate the hitbox by the rotation
+            % TODO: is this needed? if we don't rotate it, are we gettng an
+            % implicit AABB? Does it hold for multi-component ships?
+            %HitboxRotate = ow_vector:rotate_polygon(Hitbox, Rot),
+            % Translate the hitbox into place
+            HitboxTranslate = ow_vector:translate(Hitbox, Pos),
             % Convert the bounding box to a list of tuples
-            ow_vector:rect_to_tuples(HitboxTr)
+            ow_vector:rect_to_tuples(HitboxTranslate)
         end,
     Collisions = lists:flatten([area_entered(O, BBoxFun, C1) || O <- Entities]),
     % Filter out the duplicate pairs
