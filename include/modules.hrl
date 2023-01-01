@@ -1,14 +1,19 @@
 % canonical thrust directions:
-% << West, South, East, North >> 
-%            - or - 
-% << Left, Bottom, Right, Top >> 
+% << West, South, East, North >>
+%            - or -
+% << Left, Bottom, Right, Top >>
 
 -define(DEFAULT_MODULES, #{
     omni => [
-        {thrust, [10,10,10,10]},
+        {thrust, [10, 10, 10, 10]},
         {firing_arc, 360},
         {power, 10},
         {energy_capacity, 100},
+        {hitbox, [{-5, -5}, {5, -5}, {5, 5}, {-5, 5}]}
+    ],
+    rtg => [
+        {energy_capacity, 250},
+        {power, 15},
         {hitbox, [{-5, -5}, {5, -5}, {5, 5}, {-5, 5}]}
     ],
     beam => [
@@ -19,6 +24,7 @@
     ],
     rocket => [
         {power, -3},
-        {thrust, [0,50,0,0]}
+        {thrust, [0, 50, 0, 0]},
+        {hitbox, [{-3, -3}, {3, -3}, {5, 5}, {-5, 5}]}
     ]
 }).
