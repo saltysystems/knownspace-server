@@ -19,6 +19,7 @@ enum input_type {
 
 enum projectile_type {
     BALLISTIC = 0;
+    HITSCAN = 1;
 }
 
 ////////////////////////////////////////////////////////////
@@ -46,15 +47,50 @@ message actor_stats {
     required uint32 max_vel = 5;
 }
 
+// macro-level description of the reactor
 message reactor_stats {
     required uint32 cur_reactor = 1;
     required uint32 max_reactor = 2;
     required uint32 rate_reactor = 3;
 }
 
+// macro-level description of the thrust capability
+message engine_stats {
+    // Left, Bottom, Right, Top
+    required uint32 L = 1;
+    required uint32 B = 2;
+    required uint32 R = 3;
+    required uint32 T = 4;
+}
+
 // instruct the client that the following entities collided
 message collision {
     repeated sint64 id = 1; 
+}
+
+// only send along macro-level data, otherwise let the server send calculated
+// derived values for things like physics, reactor, engine thrust etc.
+message grid_cell {
+    // Cell position
+    required int32 x = 1;
+    required int32 y = 2;
+    // Firing arc in radians, if applicable
+    optional float firing_arc = 3;
+    // Weapon type, if applicable
+    optional projectile_type type = 4;
+    // Hitbox, if applicable
+    repeated vector2 hitbox = 5;
+}
+
+// Serialize a ship grid
+message shipgrid {
+    required kinematics    phys        = 1;
+    required reactor_stats reactor     = 2;
+    required engine_stats  engine      = 3;
+    repeated grid_cell     cells       = 4;
+    // yeah, let's stick constants in our serialized msgs! for debugging more
+    // than anything.
+    optional uint32        px_per_cell = 5;
 }
 
 ////////////////////////////////////////////////////////////
@@ -71,15 +107,23 @@ message part {
     required sint64 id = 1;
 }
 
-// instruct the client to make a new actor
+//// instruct the client to make a new actor
+//message actor {
+//    required sint64 id = 1; // all entities are uniqued
+//                            // identified by the server
+//    required string handle = 2;
+//    required kinematics phys = 3;
+//    repeated vector2 hitbox = 4;
+//    required actor_stats stats = 5;
+//    required reactor_stats reactor = 6;
+//}
+
+// Version 2: instruct the client to make a new actor
 message actor {
     required sint64 id = 1; // all entities are uniqued
                             // identified by the server
     required string handle = 2;
-    required kinematics phys = 3;
-    repeated vector2 hitbox = 4;
-    required actor_stats stats = 5;
-    required reactor_stats reactor = 6;
+    required shipgrid grid = 3;
 }
 
 // instruct the client to make a new projectile
