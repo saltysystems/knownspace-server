@@ -143,8 +143,9 @@ init([]) ->
             % milliseconds
             buffer_depth => ?DEFAULT_BUFFER_DEPTH,
             % radial
-            boundary => ?DEFAULT_BOUNDARY,
+            boundary => ow_collision:new(?DEFAULT_BOUNDARY, 3),
             ecs_world => World,
+            % not ideal this has to be specified twice
             tick_ms => TickMs
         },
     Config = #{tick_ms => TickMs},
@@ -157,6 +158,7 @@ init([]) ->
     ow_ecs:add_system({ks_reactor, proc_reactor, 2}, 900, Query),
     ow_ecs:add_system({ks_projectile, proc_projectile, 1}, 100, Query),
     ow_ecs:add_system({ks_collision, proc_collision, 2}, 300, Query),
+    %ow_ecs:add_system({ks_collision_ray, proc_collision, 2}, 300, Query),
     ow_ecs:add_system({ks_input, proc_reset, 1}, 900, Query),
     {ok, InitialZoneState, Config}.
 
@@ -210,13 +212,13 @@ handle_rpc(input, Msg, Session, State = #{ecs_world := World}) ->
     ks_input:push(Msg, ID, World),
     {noreply, ok, State}.
 
-handle_tick(TickMs, State = #{ecs_world := World}) ->
+handle_tick(_TickMs, State = #{ecs_world := World}) ->
     %State1 = update_gamestate(TickMs, State),
     %Snapshot = gamestate_snapshot(State), % TODO
     %#{gamestate_buffer := [ Snapshot | GSBuf ]} = State1,
     % Call systems, feed in relevant zone data if necessary
-    ZoneData = maps:with([boundary], State),
-    ow_ecs:proc(World, ZoneData#{tick_ms => TickMs}),
+    ZoneData = State,
+    ow_ecs:proc(World, ZoneData),
     ToXfer = #{
         phys_updates => get_actor_phys(World),
         projectiles => ks_projectile:notify(World),
