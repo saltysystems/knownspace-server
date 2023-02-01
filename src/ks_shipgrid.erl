@@ -5,11 +5,11 @@
 % components as used by the actor module
 % @end
 
--export([new/2, del/2, add/5, match_subcomponents/3, map/1]).
+-export([new/2, del/2, add/5, match_subcomponents/3, map_cells/2, cell/3, netformat/2]).
 
 -include("modules.hrl").
 % px
--define(CELL_SIZE, 10).
+-define(CELL_SIZE, 32).
 
 -opaque shipgrid() :: {map(), integer(), atom()}.
 -export_type([shipgrid/0]).
@@ -25,16 +25,14 @@
 -spec new(integer(), atom()) -> ok.
 new(ID, World) ->
     Grid = ow_sparsegrid:new(),
-    Q = ow_ecs:query(World),
     % Clean up any old components
     del(ID, World),
     % Add the new, clean component
-    ow_ecs:add_component(shipgrid, Grid, ID, Q).
+    ow_ecs:add_component(shipgrid, Grid, ID, World).
 
 -spec del(integer(), atom()) -> ok.
 del(ID, World) ->
-    Q = ow_ecs:query(World),
-    case ow_ecs:try_component(shipgrid, ID, Q) of
+    case ow_ecs:try_component(shipgrid, ID, World) of
         false ->
             ok;
         Components ->
@@ -45,26 +43,25 @@ del(ID, World) ->
                     ok;
                 _ ->
                     F = fun(ChildID) ->
-                        ow_ecs:rm_entity(ChildID, Q)
+                        ow_ecs:rm_entity(ChildID, World)
                     end,
                     lists:foreach(F, Children),
-                    ow_ecs:del_component(children, ID, Q)
+                    ow_ecs:del_component(children, ID, World)
             end,
             % Remove the shipgrid
-            ow_ecs:del_component(shipgrid, ID, Q)
+            ow_ecs:del_component(shipgrid, ID, World)
     end.
 
 -spec add(vector(), atom(), rotation(), id(), atom()) -> ok.
 add(Coords, Type, Rotation, ParentID, World) ->
-    Query = ow_ecs:query(World),
-    case ow_ecs:try_component(shipgrid, ParentID, Query) of
+    case ow_ecs:try_component(shipgrid, ParentID, World) of
         false ->
             {error, no_grid};
         Data ->
             Grid = ow_ecs:get(shipgrid, Data),
             Children = ow_ecs:get(children, Data, []),
             % Instance the new child module and update the grid
-            ChildRef = instance_module(Coords, Type, Rotation, ParentID, Query),
+            ChildRef = instance_module(Coords, Type, Rotation, ParentID, World),
             Children2 = [ChildRef | Children],
             Grid2 = ow_sparsegrid:put(Coords, ChildRef, Grid),
             % Update the entity
@@ -72,7 +69,7 @@ add(Coords, Type, Rotation, ParentID, World) ->
                 {shipgrid, Grid2},
                 {children, Children2}
             ],
-            ow_ecs:add_components(Components, ParentID, Query),
+            ow_ecs:add_components(Components, ParentID, World),
             % Recalculate pivot point, thrust, etc. This may need to be a fun
             % with callbacks as it grows. Can't predict what properties need to
             % be present at the macro level
@@ -80,26 +77,33 @@ add(Coords, Type, Rotation, ParentID, World) ->
             % Get the current reactor stats before updating
             CurReactor = ow_ecs:get(reactor, Data, ks_reactor:new()),
             Reactor = reactor(CurReactor, ParentID, World),
+            % Calculate the thrust parameters for each cardinal direction
             Thrust = thrust(ParentID, World),
+            % Calculate the torque provided by the gyroscope.
+            Torque = torque(ParentID, World),
+            % Calculate the moment of inertia
+            AngularMass = angular_mass(Pivot, ParentID, World),
+            % Calculate the ship's hull for collision detection operations. 
             Hull = hull(ParentID, World),
-            % Pass another update to the entity with 2nd-order calculated items
+            % Pass another update to the entity with derived properties
             Components2 = [
                 {pivot, Pivot},
                 {reactor, Reactor},
-                {engine, Thrust},
+                {thrust, Thrust},
+                {angular_mass, AngularMass},
+                {torque, Torque},
                 {hull, Hull}
             ],
-            ow_ecs:add_components(Components2, ParentID, Query)
+            ow_ecs:add_components(Components2, ParentID, World)
     end.
 % I'd like to come up with a good boundary where the side-effecty stuff is
 % wrapped..
-%E = ow_ecs:entity(ParentID, Query),
+%E = ow_ecs:entity(ParentID, World),
 %FinalGrid = ow_ecs:get(shipgrid, E),
 %{FinalGrid, ParentID, World}.
 
 match_subcomponents(Component, ParentID, World) ->
-    Query = ow_ecs:query(World),
-    case ow_ecs:try_component(children, ParentID, Query) of
+    case ow_ecs:try_component(children, ParentID, World) of
         % no children, so the match is always emptylist
         false ->
             [];
@@ -107,7 +111,7 @@ match_subcomponents(Component, ParentID, World) ->
             Children = ow_ecs:get(children, Data),
             F =
                 fun(ChildID) ->
-                    case ow_ecs:try_component(Component, ChildID, Query) of
+                    case ow_ecs:try_component(Component, ChildID, World) of
                         false ->
                             false;
                         ChildData ->
@@ -129,9 +133,6 @@ pivot(ID, World) ->
     F = fun(ComponentList, AccIn) ->
         % Get the hitbox and cell
         Hitbox = ow_ecs:get(hitbox, ComponentList),
-        % Assume each cell to be 10px by 10 px,
-        %Cell = ow_ecs:get(grid_coords, ComponentList),
-        %{XScale, YScale} = ow_vector:scale(Cell, ?CELL_SIZE),
         % Sum columns and rows
         {XList, YList} = lists:unzip(Hitbox),
         ModulePivot = {lists:sum(XList), lists:sum(YList)},
@@ -145,6 +146,49 @@ pivot(ID, World) ->
     Pivot = lists:foldl(F, {0, 0}, WithHitboxes),
     Normalization = length(WithHitboxes),
     ow_vector:scale(Pivot, 1 / Normalization).
+
+angular_mass(Pivot, ID, World) ->
+    % Calculate the moment of inertia (I) for a given ship by calculating it
+    % for each component and then summing
+    % --
+    % HACK for the moment - just calculate based on things with hitboxes
+    % IF we add proper mass, then change it.
+    WithHitboxes = match_subcomponents(hitbox, ID, World),
+    F = fun(ComponentList, AccIn) ->
+        % Get the cell position
+        GridCoords = ow_ecs:get(grid_coords, ComponentList),
+        {Xd, Yd} = ow_vector:subtract(Pivot, GridCoords),
+        % Assume the cell is a point mass and we calculate the angular mass
+        % around the pivot point
+        % Then the moment of inertia is:
+        % I = m*r^2
+        % Distance for a 
+        % r = sqrt(X^2+Y^2)
+        % r^2 = X^2 + Y^2
+        % let R = r^2
+        % If M=1, then I = R
+        % --
+        % So first calculate R by subtracting the current position from the
+        % center of mass
+        R = ow_vector:subtract(Pivot, GridCoords),
+        I = 
+            case R == {0,0} of
+                true -> 
+                    % If R = 0, then this object is on top of the pivot point
+                    % exactly (single cell?)
+                    % Assume M=1,L=1,W=1
+                    % I = (1/12) * 1 * (1^2 + 1^2)
+                    (1/6);
+                false ->
+                    % Get the constituent components and calculate the moment
+                    % of inertia
+                    {Xd,Yd} = R,
+                    math:pow(Xd,2) + math:pow(Yd,2)
+            end,
+        I + AccIn
+    end,
+    lists:foldl(F, 0, WithHitboxes).
+
 
 hull(ID, World) ->
     % This function calculates an outer hull of a collection of 2D polygons
@@ -186,7 +230,7 @@ hull(ID, World) ->
     end,
     lists:foldl(F, #{}, WithHitboxes).
 
-reactor(#{cur_reactor := Cur}, ID, World) ->
+reactor(#{now := Cur}, ID, World) ->
     % Rate at which power is generated
     WithPower = match_subcomponents(power, ID, World),
     F0 = fun(ComponentList, AccIn) ->
@@ -208,9 +252,9 @@ reactor(#{cur_reactor := Cur}, ID, World) ->
                 Cur
         end,
     #{
-        cur_reactor => Current,
-        max_reactor => Capacity,
-        rate_reactor => Power
+        now  => Current,
+        max  => Capacity,
+        rate => Power
     }.
 
 thrust(ID, World) ->
@@ -219,18 +263,73 @@ thrust(ID, World) ->
         Thrust = ow_ecs:get(thrust, ComponentList),
         Orientation = ow_ecs:get(orientation, ComponentList),
         RotatedThrust = rotate_ccw(Thrust, Orientation),
-        lists:zipwith(fun(X, Y) -> X + Y end, RotatedThrust, AccIn)
+        TempList = binary:bin_to_list(RotatedThrust),
+        lists:zipwith(fun(X, Y) -> X + Y end, TempList, AccIn)
     end,
-    lists:foldl(F, [0, 0, 0, 0], WithThrust).
+    CalculatedThrust = lists:foldl(F, [0, 0, 0, 0], WithThrust),
+    binary:list_to_bin(CalculatedThrust).
 
-map(_Grid) ->
-    ok.
+% TODO: write a generic "sum component" fun?
+torque(ID, World) ->
+    WithTorque = match_subcomponents(torque, ID, World),
+    F = fun(ComponentList, AccIn) ->
+        ow_ecs:get(torque, ComponentList) + AccIn
+    end,
+    lists:foldl(F, 0, WithTorque).
+
+map_cells(ID, World) ->
+    % Get child IDs
+    % Return the cell (in network format)
+    % Get the shipgrid
+    ComponentList = ow_ecs:entity(ID, World),
+    Children = ow_ecs:get(children, ComponentList),
+    % For each child, get the cell
+    F = fun(ChID, Acc) ->
+                ChildComp = ow_ecs:entity(ChID, World),
+                M = maps:from_list(ChildComp),
+                M1 = M#{ id => ChID },
+                [ ow_vector:to_proto(M1) | Acc ]
+        end,
+    lists:foldl(F, [], Children).
+
+cell({X,Y}, ID, World) ->
+    % Return the cell (in network format)
+    % Get the shipgrid
+    {ID, ComponentList} = ow_ecs:entity(ID, World),
+    ShipGrid = ow_ecs:get(shipgrid, ComponentList),
+    % Get the cell
+    Cell = maps:get({X,Y}, ShipGrid),
+    % Get the child ID
+    #{ data := ChildID } = Cell,
+    % Get the child entity
+    {ChildID, ChComponentList} = ow_ecs:entity(ChildID, World),
+    ChComponentList.
+
+
+netformat(ID, World) ->
+    Components = ow_ecs:entity(ID, World),
+    Phys = ow_ecs:get(phys, Components),
+    Pivot = ow_vector:vector_map(ow_ecs:get(pivot, Components)),
+    Reactor = ow_ecs:get(reactor, Components),
+    Thrust = ow_ecs:get(thrust, Components),
+    Torque = ow_ecs:get(torque, Components),
+    AngularMass = ow_ecs:get(angular_mass, Components),
+    Cells = map_cells(ID, World),
+    #{
+      phys => Phys,
+      pivot => Pivot,
+      torque => Torque,
+      angular_mass => AngularMass,
+      reactor => Reactor,
+      thrust => Thrust,
+      cells => Cells
+     }.
 
 %%-------------------------------------------------------------------
 %% Internal functions
 %%-------------------------------------------------------------------
 
-instance_module(Coords, Type, Orientation, ParentID, Query) ->
+instance_module(Coords, Type, Orientation, ParentID, World) ->
     % Get the default configuration from file
     DefaultModules = ?DEFAULT_MODULES,
     % Components added at instance time
@@ -243,7 +342,7 @@ instance_module(Coords, Type, Orientation, ParentID, Query) ->
     DefaultComponents = maps:get(Type, DefaultModules),
     % Create the component instance in ECS
     ModuleID = erlang:unique_integer(),
-    ow_ecs:add_components(Components ++ DefaultComponents, ModuleID, Query),
+    ow_ecs:add_components(Components ++ DefaultComponents, ModuleID, World),
     % Return the child ID back to the caller
     ModuleID.
 
@@ -251,13 +350,22 @@ rotate_cw(List, N) when N < 0 ->
     rotate_ccw(List, -N);
 rotate_cw(List, 0) ->
     List;
-rotate_cw([Head | Tail], Rotations) ->
-    rotate_cw(Tail ++ [Head], Rotations - 1).
+rotate_cw(<<H:8, T/binary>>, Rotations) ->
+    rotate_cw(<<T/binary, H:8>>, Rotations - 1).
 
 rotate_ccw(List, N) when N < 0 ->
     rotate_cw(List, -N);
 rotate_ccw(List, 0) ->
     List;
-rotate_ccw(List, Rotations) ->
-    [Head | Tail] = lists:reverse(List),
-    rotate_ccw([Head | lists:reverse(Tail)], Rotations - 1).
+rotate_ccw(Bin, Rotations) ->
+    << Head:8,  Tail/binary >> = rev(Bin),
+    Rev = rev(Tail),
+    rotate_ccw(<< Head, Rev/binary >>, Rotations - 1).
+
+
+%  from
+%  https://stackoverflow.com/questions/20830201/better-way-to-reverse-binary
+rev(Binary) ->
+   Size = erlang:bit_size(Binary),
+   <<X:Size/integer-little>> = Binary,
+   <<X:Size/integer-big>>.

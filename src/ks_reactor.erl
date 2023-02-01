@@ -5,19 +5,19 @@
 
 new() ->
     #{
-        cur_reactor => 0,
-        max_reactor => 0,
-        rate_reactor => 0
+        now => 0,
+        max => 0,
+        rate => 0
     }.
 
-proc_reactor(Query, _ZoneData) ->
+proc_reactor(World, _ZoneData) ->
     % Match any entities who have input this tick
     Fun =
         fun(ID, Reactor) ->
             #{
-                cur_reactor := Cur,
-                max_reactor := Max,
-                rate_reactor := R
+                now := Cur,
+                max := Max,
+                rate := R
             } = Reactor,
             Cur1 =
                 if
@@ -31,9 +31,9 @@ proc_reactor(Query, _ZoneData) ->
             if
                 Cur =/= Max ->
                     % Changed, so update the table
-                    ow_ecs:add_component(reactor, Reactor#{cur_reactor => Cur1}, ID, Query);
+                    ow_ecs:add_component(reactor, Reactor#{now => Cur1}, ID, World);
                 true ->
                     ok
             end
         end,
-    ow_ecs:foreach_component(Fun, reactor, Query).
+    ow_ecs:foreach_component(Fun, reactor, World).

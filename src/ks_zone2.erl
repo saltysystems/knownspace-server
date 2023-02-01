@@ -15,16 +15,19 @@
     stop/0,
     join/2,
     part/1,
-    input/2
+    input/2,
+    get_env/2
 ]).
 
 % Allow instantiating multiple instances of zones
 %-define(SERVER(Name), {via, gproc, {n, l, {?MODULE, Name}}}).
 -define(SERVER, ?MODULE).
 % Radial boundary size
--define(DEFAULT_BOUNDARY, 1024).
+-define(DEFAULT_BOUNDARY, 10000).
 % Set the default buffer depth in milliseconds
 -define(DEFAULT_BUFFER_DEPTH, 500).
+% Set the default max velocity in this zone
+-define(DEFAULT_MAX_VEL, 300).
 
 %% API
 
@@ -125,6 +128,10 @@ input(Msg, Session) ->
             ow_zone:rpc(?SERVER, input, Msg, Session)
     end.
 
+-spec get_env(atom(), map()) -> term().
+get_env(Key, #{ env := Env}) ->
+    maps:get(Key, Env, undefined).
+
 %%%====================================================================
 %%% Callbacks
 %%%====================================================================
@@ -135,7 +142,7 @@ init([]) ->
     },
     % Initialize the zone with empty buffers and some default parameters
     World = zone,
-    TickMs = 50,
+    TickMs = 33,
     InitialZoneState =
         #{
             input_buffer => [],
@@ -146,20 +153,19 @@ init([]) ->
             boundary => ow_collision:new(?DEFAULT_BOUNDARY, 3),
             ecs_world => World,
             % not ideal this has to be specified twice
-            tick_ms => TickMs
+            tick_ms => TickMs,
+            env => init_environment()
         },
     Config = #{tick_ms => TickMs},
     % Start the ECS server. This should be handled by a supervisor
     ow_ecs:start_link(World),
-    % Get the query obj
-    Query = ow_ecs:query(World),
     % Add the systems
-    ow_ecs:add_system({ks_phys, proc_phys, 2}, 200, Query),
-    ow_ecs:add_system({ks_reactor, proc_reactor, 2}, 900, Query),
-    ow_ecs:add_system({ks_projectile, proc_projectile, 1}, 100, Query),
-    ow_ecs:add_system({ks_collision, proc_collision, 2}, 300, Query),
-    %ow_ecs:add_system({ks_collision_ray, proc_collision, 2}, 300, Query),
-    ow_ecs:add_system({ks_input, proc_reset, 1}, 900, Query),
+    ow_ecs:add_system({ks_phys, proc_phys, 2}, 200, World),
+    ow_ecs:add_system({ks_reactor, proc_reactor, 2}, 900, World),
+    ow_ecs:add_system({ks_projectile, proc_projectile, 1}, 100, World),
+    ow_ecs:add_system({ks_collision, proc_collision, 2}, 300, World),
+    %%ow_ecs:add_system({ks_collision_ray, proc_collision, 2}, 300, World),
+    ow_ecs:add_system({ks_input, proc_reset, 1}, 900, World),
     {ok, InitialZoneState, Config}.
 
 handle_join(Msg, Session, State = #{ecs_world := World}) ->
@@ -171,12 +177,14 @@ handle_join(Msg, Session, State = #{ecs_world := World}) ->
     % Add the actor to the ECS
     Actor = ks_actor:new(Handle, ID, World),
     % Let everyone else know that the Player has joined
-    ow_zone:broadcast(self(), {actor, ks_actor:map(Actor)}),
+    ow_zone:broadcast(self(), {actor, Actor}),
     % Build a reply to the player with information about actors who joined
     % before them.
+    Actors = ks_actor:get_all(World),
     ZoneXfer = #{
-        tick_ms => maps:get(tick_ms, State),
-        actors => ks_actor:get_all(World),
+        tick_ms     => maps:get(tick_ms, State),
+        env         => maps:get(env, State),
+        entities    => Actors,
         projectiles => ks_projectile:notify(World)
     },
     Reply = {{'@', [ID]}, {zone_transfer, ZoneXfer}},
@@ -213,18 +221,23 @@ handle_rpc(input, Msg, Session, State = #{ecs_world := World}) ->
     {noreply, ok, State}.
 
 handle_tick(_TickMs, State = #{ecs_world := World}) ->
+    Start =  erlang:monotonic_time(),
     %State1 = update_gamestate(TickMs, State),
     %Snapshot = gamestate_snapshot(State), % TODO
     %#{gamestate_buffer := [ Snapshot | GSBuf ]} = State1,
     % Call systems, feed in relevant zone data if necessary
     ZoneData = State,
     ow_ecs:proc(World, ZoneData),
+    %io:format("Phys updates: ~p~n", [get_actor_phys(World)]),
     ToXfer = #{
         phys_updates => get_actor_phys(World),
         projectiles => ks_projectile:notify(World),
         collisions => ks_collision:notify(World)
     },
     Reply = {'@zone', {zone_snapshot, ToXfer}},
+    End = erlang:monotonic_time(),
+    Delta = erlang:convert_time_unit(End - Start, native, millisecond),
+    logger:notice("Frame time: ~p", [Delta]),
     {Reply, State}.
 
 %%%====================================================================
@@ -234,5 +247,16 @@ handle_tick(_TickMs, State = #{ecs_world := World}) ->
 -spec get_actor_phys(term()) -> [map()].
 get_actor_phys(World) ->
     % Get all actors
-    ActorMap = ks_actor:get_all(World, map),
-    [maps:with([id, phys], Actor) || Actor <- ActorMap].
+    Actors = ks_actor:get_all(World),
+    F = fun(#{ id := ID, ship := Ship}, AccIn) ->
+                Phys = maps:get(phys, Ship),
+                [ #{ id => ID, phys => Phys } | AccIn ]
+        end,
+    lists:foldl(F, [], Actors).
+
+-spec init_environment() -> map().
+init_environment() ->
+    % Initialize the Environment.
+    #{ 
+      max_vel => ?DEFAULT_MAX_VEL
+     }.

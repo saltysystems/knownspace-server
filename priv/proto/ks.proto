@@ -8,18 +8,31 @@ package ks;
 
 // Actions representing player input                   
 enum input_type {
-    IMPULSE_FWD = 0;
-    IMPULSE_REV = 1;
-    IMPULSE_LEFT = 2;
+    IMPULSE_FWD   = 0;
+    IMPULSE_REV   = 1;
+    IMPULSE_LEFT  = 2;
     IMPULSE_RIGHT = 3;
-    ROTATE_LEFT = 4;
-    ROTATE_RIGHT = 5;
-    ACTION_0 = 10;
+    ROTATE_LEFT   = 4;
+    ROTATE_RIGHT  = 5;
+    ACTION_0      = 10;
 }
 
-enum projectile_type {
+enum action_type {
     BALLISTIC = 0;
-    HITSCAN = 1;
+    HITSCAN   = 1;
+}
+
+// Create fixed arcs for weapons. Can't be an optional float thanks to some
+// gdscript brokenness. Revisit.
+// https://github.com/godotengine/godot-proposals/issues/162
+// TODO-BUG: ^
+enum arc {
+    ARC_360 = 0;
+    ARC_180 = 1;
+    ARC_90  = 2;
+    ARC_45  = 3;
+    ARC_22  = 4;
+    ARC_0   = 5;
 }
 
 ////////////////////////////////////////////////////////////
@@ -32,35 +45,9 @@ message vector2 {
 
 // kinematics - describe the physics of the object     
 message kinematics { 
-    required float rot = 1;
+    required float   rot = 1;
     required vector2 pos = 2;
     required vector2 vel = 3;
-}
-
-// actor_stats - describe ship component stats 
-message actor_stats {
-    // TODO: Move me inside of the actor_grid
-    required uint32 max_hp = 1;
-    required uint32 cur_hp = 2;
-    required uint32 rotation_fac = 3;
-    required uint32 speed_fac = 4;
-    required uint32 max_vel = 5;
-}
-
-// macro-level description of the reactor
-message reactor_stats {
-    required uint32 cur_reactor = 1;
-    required uint32 max_reactor = 2;
-    required uint32 rate_reactor = 3;
-}
-
-// macro-level description of the thrust capability
-message engine_stats {
-    // Left, Bottom, Right, Top
-    required uint32 L = 1;
-    required uint32 B = 2;
-    required uint32 R = 3;
-    required uint32 T = 4;
 }
 
 // instruct the client that the following entities collided
@@ -68,29 +55,44 @@ message collision {
     repeated sint64 id = 1; 
 }
 
-// only send along macro-level data, otherwise let the server send calculated
-// derived values for things like physics, reactor, engine thrust etc.
-message grid_cell {
+// instruct the client of the zone conditions
+message environment {
+    required uint32 max_vel = 1;
+}
+
+////////////////////////////////////////////////////////////
+///// SHIPS & COMPONENTS ///////////////////////////////////
+////////////////////////////////////////////////////////////
+
+// macro-level description of the reactor
+message reactor {
+    required uint32 max  = 1;
+    required uint32 now  = 2;
+    required uint32 rate = 3;
+}
+
+// Send relevant data only - derived data (e.g., overall thrust, reactor stats,
+// etc) will be sent directly from the server
+message cell {
     // Cell position
-    required int32 x = 1;
-    required int32 y = 2;
-    // Firing arc in radians, if applicable
-    optional float firing_arc = 3;
-    // Weapon type, if applicable
-    optional projectile_type type = 4;
-    // Hitbox, if applicable
-    repeated vector2 hitbox = 5;
+    required vector2     grid_coords  = 1;
+    required sint32      id           = 2;
+    required uint32      orientation  = 3;
+    optional string      sprite       = 4; // Sprite used by the cell
+    optional arc         firing_arc   = 5; // Firing arc of any weapons, if app
+    optional action_type action       = 6; // Action type, if applicable
+    repeated vector2     hitbox       = 7; // Hitbox, if applicable
 }
 
 // Serialize a ship grid
-message shipgrid {
-    required kinematics    phys        = 1;
-    required reactor_stats reactor     = 2;
-    required engine_stats  engine      = 3;
-    repeated grid_cell     cells       = 4;
-    // yeah, let's stick constants in our serialized msgs! for debugging more
-    // than anything.
-    optional uint32        px_per_cell = 5;
+message ship {
+    required kinematics phys         = 1;
+    required vector2    pivot        = 2; 
+    required reactor    reactor      = 3;
+    required bytes      thrust       = 4;
+    required float      angular_mass = 5;
+    required uint32     torque       = 6;
+    repeated cell       cells        = 7;
 }
 
 ////////////////////////////////////////////////////////////
@@ -107,58 +109,47 @@ message part {
     required sint64 id = 1;
 }
 
-//// instruct the client to make a new actor
-//message actor {
-//    required sint64 id = 1; // all entities are uniqued
-//                            // identified by the server
-//    required string handle = 2;
-//    required kinematics phys = 3;
-//    repeated vector2 hitbox = 4;
-//    required actor_stats stats = 5;
-//    required reactor_stats reactor = 6;
-//}
-
 // Version 2: instruct the client to make a new actor
 message actor {
-    required sint64 id = 1; // all entities are uniqued
-                            // identified by the server
+    required sint64 id     = 1; 
     required string handle = 2;
-    required shipgrid grid = 3;
+    required ship   ship   = 3;
 }
 
 // instruct the client to make a new projectile
 message projectile {
-    required sint64 owner = 1;
-    required sint64 id = 2;
-    required kinematics phys = 3;
-    required uint32 ttl = 4;
-    repeated vector2 hitbox = 5;
+    required sint64     owner  = 1;
+    required sint64     id     = 2;
+    required kinematics phys   = 3;
+    required uint32     ttl    = 4;
+    repeated vector2    hitbox = 5;
 }
 
 // player intent for this tick
 message input {
     // would it be faster/more compact to have a bitfield? probably once the
     // game is better understood
-    repeated input_type keys = 1;
-    optional vector2 cursor = 2;
+    repeated input_type keys   = 1;
+    optional vector2    cursor = 2;
 }
 
 // per-tick updates on the physics for every actor
 message actor_phys {
-    required sint64 id = 1;
+    required sint64     id   = 1;
     required kinematics phys = 2;
 }
 
 // Send a full state transfer to a client when joining
 message zone_transfer {
-    required uint32 tick_ms = 1;
-    repeated actor entities = 2;
-    repeated projectile projectiles = 3;
+    required uint32      tick_ms     = 1;
+    required environment env         = 2;
+    repeated actor       entities    = 3;
+    repeated projectile  projectiles = 4;
 }
 
 // (frequently) transfer the current gamestate to clients
 message zone_snapshot {
     repeated actor_phys phys_updates = 1;
-    repeated projectile projectiles = 2;
-    repeated collision collisions = 3;
+    repeated projectile projectiles  = 2;
+    repeated collision  collisions   = 3;
 }
