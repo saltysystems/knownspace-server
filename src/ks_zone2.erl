@@ -23,7 +23,7 @@
 %-define(SERVER(Name), {via, gproc, {n, l, {?MODULE, Name}}}).
 -define(SERVER, ?MODULE).
 % Radial boundary size
--define(DEFAULT_BOUNDARY, 10000).
+-define(DEFAULT_BOUNDARY, 1000).
 % Set the default buffer depth in milliseconds
 -define(DEFAULT_BUFFER_DEPTH, 500).
 % Set the default max velocity in this zone
@@ -141,8 +141,17 @@ init([]) ->
         timestamp = erlang:system_time(millisecond)
     },
     % Initialize the zone with empty buffers and some default parameters
-    World = zone,
-    TickMs = 33,
+    % Add the systems
+    World = ow_ecs2:start(),
+    {ok, W1} = ow_ecs2:add_system({ks_phys, proc_phys, 2}, 200, World),
+    {ok, W2} = ow_ecs2:add_system({ks_reactor, proc_reactor, 2}, 900, W1),
+    {ok, W3} = ow_ecs2:add_system({ks_projectile, proc_projectile, 1}, 100, W2),
+    {ok, W4} = ow_ecs2:add_system({ks_collision, proc_collision, 2}, 300, W3),
+    %%ow_ecs:add_system({ks_collision_ray, proc_collision, 2}, 300, World),
+    {ok, W5} = ow_ecs2:add_system({ks_input, proc_reset, 1}, 900, W4),
+    % Configure the initial state
+    TickMs = 40,
+    Config = #{tick_ms => TickMs},
     InitialZoneState =
         #{
             input_buffer => [],
@@ -150,22 +159,12 @@ init([]) ->
             % milliseconds
             buffer_depth => ?DEFAULT_BUFFER_DEPTH,
             % radial
-            boundary => ow_collision:new(?DEFAULT_BOUNDARY, 3),
-            ecs_world => World,
+            boundary => ow_collision:new(?DEFAULT_BOUNDARY, 5),
+            ecs_world => W5,
             % not ideal this has to be specified twice
             tick_ms => TickMs,
             env => init_environment()
         },
-    Config = #{tick_ms => TickMs},
-    % Start the ECS server. This should be handled by a supervisor
-    ow_ecs:start_link(World),
-    % Add the systems
-    ow_ecs:add_system({ks_phys, proc_phys, 2}, 200, World),
-    ow_ecs:add_system({ks_reactor, proc_reactor, 2}, 900, World),
-    ow_ecs:add_system({ks_projectile, proc_projectile, 1}, 100, World),
-    ow_ecs:add_system({ks_collision, proc_collision, 2}, 300, World),
-    %%ow_ecs:add_system({ks_collision_ray, proc_collision, 2}, 300, World),
-    ow_ecs:add_system({ks_input, proc_reset, 1}, 900, World),
     {ok, InitialZoneState, Config}.
 
 handle_join(Msg, Session, State = #{ecs_world := World}) ->
@@ -220,14 +219,22 @@ handle_rpc(input, Msg, Session, State = #{ecs_world := World}) ->
     ks_input:push(Msg, ID, World),
     {noreply, ok, State}.
 
-handle_tick(_TickMs, State = #{ecs_world := World}) ->
-    Start =  erlang:monotonic_time(),
+handle_tick(TickMs, State = #{ecs_world := World}) ->
     %State1 = update_gamestate(TickMs, State),
     %Snapshot = gamestate_snapshot(State), % TODO
     %#{gamestate_buffer := [ Snapshot | GSBuf ]} = State1,
     % Call systems, feed in relevant zone data if necessary
+    Start = erlang:system_time(),
     ZoneData = State,
-    ow_ecs:proc(World, ZoneData),
+    ow_ecs2:proc(ZoneData, World),
+    End = erlang:system_time(),
+    Delta = erlang:convert_time_unit(End-Start, native, millisecond),
+    case Delta > TickMs/2 of
+        true -> 
+            logger:notice("Frame delta more than half of frame time");
+        false -> 
+            ok
+    end,
     %io:format("Phys updates: ~p~n", [get_actor_phys(World)]),
     ToXfer = #{
         phys_updates => get_actor_phys(World),
@@ -235,9 +242,6 @@ handle_tick(_TickMs, State = #{ecs_world := World}) ->
         collisions => ks_collision:notify(World)
     },
     Reply = {'@zone', {zone_snapshot, ToXfer}},
-    End = erlang:monotonic_time(),
-    Delta = erlang:convert_time_unit(End - Start, native, millisecond),
-    logger:notice("Frame time: ~p", [Delta]),
     {Reply, State}.
 
 %%%====================================================================

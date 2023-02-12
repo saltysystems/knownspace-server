@@ -93,6 +93,7 @@ message ship {
     required float      angular_mass = 5;
     required uint32     torque       = 6;
     repeated cell       cells        = 7;
+    repeated vector2    hull         = 8;
 }
 
 ////////////////////////////////////////////////////////////

@@ -28,38 +28,38 @@ new(ID, World) ->
     % Clean up any old components
     del(ID, World),
     % Add the new, clean component
-    ow_ecs:add_component(shipgrid, Grid, ID, World).
+    ow_ecs2:add_component(shipgrid, Grid, ID, World).
 
 -spec del(integer(), atom()) -> ok.
 del(ID, World) ->
-    case ow_ecs:try_component(shipgrid, ID, World) of
+    case ow_ecs2:try_component(shipgrid, ID, World) of
         false ->
             ok;
         Components ->
             % Get the children and clean them up.
-            Children = ow_ecs:get(children, Components),
+            Children = ow_ecs2:get(children, Components),
             case Children of
                 false ->
                     ok;
                 _ ->
                     F = fun(ChildID) ->
-                        ow_ecs:rm_entity(ChildID, World)
+                        ow_ecs2:rm_entity(ChildID, World)
                     end,
                     lists:foreach(F, Children),
-                    ow_ecs:del_component(children, ID, World)
+                    ow_ecs2:del_component(children, ID, World)
             end,
             % Remove the shipgrid
-            ow_ecs:del_component(shipgrid, ID, World)
+            ow_ecs2:del_component(shipgrid, ID, World)
     end.
 
 -spec add(vector(), atom(), rotation(), id(), atom()) -> ok.
 add(Coords, Type, Rotation, ParentID, World) ->
-    case ow_ecs:try_component(shipgrid, ParentID, World) of
+    case ow_ecs2:try_component(shipgrid, ParentID, World) of
         false ->
             {error, no_grid};
         Data ->
-            Grid = ow_ecs:get(shipgrid, Data),
-            Children = ow_ecs:get(children, Data, []),
+            Grid = ow_ecs2:get(shipgrid, Data),
+            Children = ow_ecs2:get(children, Data, []),
             % Instance the new child module and update the grid
             ChildRef = instance_module(Coords, Type, Rotation, ParentID, World),
             Children2 = [ChildRef | Children],
@@ -69,13 +69,13 @@ add(Coords, Type, Rotation, ParentID, World) ->
                 {shipgrid, Grid2},
                 {children, Children2}
             ],
-            ow_ecs:add_components(Components, ParentID, World),
+            ow_ecs2:add_components(Components, ParentID, World),
             % Recalculate pivot point, thrust, etc. This may need to be a fun
             % with callbacks as it grows. Can't predict what properties need to
             % be present at the macro level
             Pivot = pivot(ParentID, World),
             % Get the current reactor stats before updating
-            CurReactor = ow_ecs:get(reactor, Data, ks_reactor:new()),
+            CurReactor = ow_ecs2:get(reactor, Data, ks_reactor:new()),
             Reactor = reactor(CurReactor, ParentID, World),
             % Calculate the thrust parameters for each cardinal direction
             Thrust = thrust(ParentID, World),
@@ -84,7 +84,7 @@ add(Coords, Type, Rotation, ParentID, World) ->
             % Calculate the moment of inertia
             AngularMass = angular_mass(Pivot, ParentID, World),
             % Calculate the ship's hull for collision detection operations. 
-            Hull = hull(ParentID, World),
+            Hull = graham_hull(ParentID, World),
             % Pass another update to the entity with derived properties
             Components2 = [
                 {pivot, Pivot},
@@ -94,24 +94,24 @@ add(Coords, Type, Rotation, ParentID, World) ->
                 {torque, Torque},
                 {hull, Hull}
             ],
-            ow_ecs:add_components(Components2, ParentID, World)
+            ow_ecs2:add_components(Components2, ParentID, World)
     end.
 % I'd like to come up with a good boundary where the side-effecty stuff is
 % wrapped..
-%E = ow_ecs:entity(ParentID, World),
-%FinalGrid = ow_ecs:get(shipgrid, E),
+%E = ow_ecs2:entity(ParentID, World),
+%FinalGrid = ow_ecs2:get(shipgrid, E),
 %{FinalGrid, ParentID, World}.
 
 match_subcomponents(Component, ParentID, World) ->
-    case ow_ecs:try_component(children, ParentID, World) of
+    case ow_ecs2:try_component(children, ParentID, World) of
         % no children, so the match is always emptylist
         false ->
             [];
         Data ->
-            Children = ow_ecs:get(children, Data),
+            Children = ow_ecs2:get(children, Data),
             F =
                 fun(ChildID) ->
-                    case ow_ecs:try_component(Component, ChildID, World) of
+                    case ow_ecs2:try_component(Component, ChildID, World) of
                         false ->
                             false;
                         ChildData ->
@@ -132,12 +132,12 @@ pivot(ID, World) ->
     % Unzip the vectors
     F = fun(ComponentList, AccIn) ->
         % Get the hitbox and cell
-        Hitbox = ow_ecs:get(hitbox, ComponentList),
+        Hitbox = ow_ecs2:get(hitbox, ComponentList),
         % Sum columns and rows
         {XList, YList} = lists:unzip(Hitbox),
         ModulePivot = {lists:sum(XList), lists:sum(YList)},
         % Translate the pivot by its cell position
-        Cell = ow_ecs:get(grid_coords, ComponentList),
+        Cell = ow_ecs2:get(grid_coords, ComponentList),
         ScaledCell = ow_vector:scale(Cell, ?CELL_SIZE),
         [NormalizedPivot] = ow_vector:translate([ModulePivot], ScaledCell),
         % Add the normalized pivot to the running total
@@ -156,7 +156,7 @@ angular_mass(Pivot, ID, World) ->
     WithHitboxes = match_subcomponents(hitbox, ID, World),
     F = fun(ComponentList, AccIn) ->
         % Get the cell position
-        GridCoords = ow_ecs:get(grid_coords, ComponentList),
+        GridCoords = ow_ecs2:get(grid_coords, ComponentList),
         {Xd, Yd} = ow_vector:subtract(Pivot, GridCoords),
         % Assume the cell is a point mass and we calculate the angular mass
         % around the pivot point
@@ -190,57 +190,81 @@ angular_mass(Pivot, ID, World) ->
     lists:foldl(F, 0, WithHitboxes).
 
 
-hull(ID, World) ->
+graham_hull(ID, World) ->
     % This function calculates an outer hull of a collection of 2D polygons
-    % which start out semi-triangularized. By detecting shared edges and
-    % deleting them, we are left with only edges that are on the outside of the
-    % ship.
+    % using Graham's scan method by decomposing them into a list of vertices
+    % and then eliminating cavities.
     % --
-    % First grab all components on the ship that have a hitbox.
+    % Grab all components on the ship which have a hitbox
     WithHitboxes = match_subcomponents(hitbox, ID, World),
-    % Construct a map of edges with the ID of the child component holding the
-    % edge. This map will be fed into collision detection.
+    % Get all vertices for all hitboxes
     F = fun(ComponentList, AccIn) ->
-        % Get child ID we inject into the component list
-        ChildID = ow_ecs:get(id, ComponentList),
-        % Get the hitbox
-        Hitbox = ow_ecs:get(hitbox, ComponentList),
-        % Scale the cell by px-per-cell
-        Cell = ow_ecs:get(grid_coords, ComponentList),
-        ScaledCell = ow_vector:scale(Cell, ?CELL_SIZE),
-        % Translate the hitbox by the scaled position
-        THB = ow_vector:translate(Hitbox, ScaledCell),
-        % Calculate edges
-        Edges = ow_vector:edges(THB),
-        G = fun(Edge, Acc) ->
-            % Sort edges as vertices can appear in any order.
-            % TODO: Need to consider whether the vertex order needs to
-            %       be preserved in the final output
-            SortEdge = lists:sort(Edge),
-            % If a duplicate edge is detected, delete it as it must be
-            % a shared edge
-            case maps:is_key(SortEdge, Acc) of
-                true ->
-                    maps:remove(SortEdge, Acc);
-                false ->
-                    Acc#{SortEdge => ChildID}
-            end
+            % Get the hitbox
+            Hitbox = ow_ecs2:get(hitbox, ComponentList),
+            % Scale the cell by px-per-cell
+            Cell = ow_ecs2:get(grid_coords, ComponentList),
+            ScaledCell = ow_vector:scale(Cell, ?CELL_SIZE),
+            % Translate the hitbox by the scaled position
+            THB = ow_vector:translate(Hitbox, ScaledCell),
+            % Add the vertices to the list
+            [ THB | AccIn ]
         end,
-        lists:foldl(G, AccIn, Edges)
-    end,
-    lists:foldl(F, #{}, WithHitboxes).
+    DeepVertices = lists:foldl(F, [], WithHitboxes),
+    Vertices = lists:sort(lists:flatten(DeepVertices)),
+    ow_vector:convex_hull(Vertices).
+
+
+%hull(ID, World) ->
+%    % This function calculates an outer hull of a collection of 2D polygons
+%    % which start out semi-triangularized. By detecting shared edges and
+%    % deleting them, we are left with only edges that are on the outside of the
+%    % ship.
+%    % --
+%    % First grab all components on the ship that have a hitbox.
+%    WithHitboxes = match_subcomponents(hitbox, ID, World),
+%    % Construct a map of edges with the ID of the child component holding the
+%    % edge. This map will be fed into collision detection.
+%    F = fun(ComponentList, AccIn) ->
+%        % Get child ID we inject into the component list
+%        ChildID = ow_ecs2:get(id, ComponentList),
+%        % Get the hitbox
+%        Hitbox = ow_ecs2:get(hitbox, ComponentList),
+%        % Scale the cell by px-per-cell
+%        Cell = ow_ecs2:get(grid_coords, ComponentList),
+%        ScaledCell = ow_vector:scale(Cell, ?CELL_SIZE),
+%        % Translate the hitbox by the scaled position
+%        THB = ow_vector:translate(Hitbox, ScaledCell),
+%        % Calculate edges
+%        Edges = ow_vector:edges(THB),
+%        G = fun(Edge, Acc) ->
+%            % Sort edges as vertices can appear in any order.
+%            % TODO: Need to consider whether the vertex order needs to
+%            %       be preserved in the final output
+%            SortEdge = lists:sort(Edge),
+%            % If a duplicate edge is detected, delete it as it must be
+%            % a shared edge
+%            case maps:is_key(SortEdge, Acc) of
+%                true ->
+%                    maps:remove(SortEdge, Acc);
+%                false ->
+%                    Acc#{SortEdge => ChildID}
+%            end
+%        end,
+%        lists:foldl(G, AccIn, Edges)
+%    end,
+%    lists:foldl(F, #{}, WithHitboxes).
 
 reactor(#{now := Cur}, ID, World) ->
     % Rate at which power is generated
     WithPower = match_subcomponents(power, ID, World),
     F0 = fun(ComponentList, AccIn) ->
-        Pow = ow_ecs:get(power, ComponentList),
+        Pow = ow_ecs2:get(power, ComponentList),
         Pow + AccIn
     end,
     Power = lists:foldl(F0, 0, WithPower),
     WithCapacity = match_subcomponents(energy_capacity, ID, World),
     F1 = fun(ComponentList, AccIn) ->
-        Cap = ow_ecs:get(energy_capacity, ComponentList),
+        Cap = ow_ecs2:get(energy_capacity, ComponentList),
         Cap + AccIn
     end,
     Capacity = lists:foldl(F1, 0, WithCapacity),
@@ -260,8 +284,8 @@ reactor(#{now := Cur}, ID, World) ->
 thrust(ID, World) ->
     WithThrust = match_subcomponents(thrust, ID, World),
     F = fun(ComponentList, AccIn) ->
-        Thrust = ow_ecs:get(thrust, ComponentList),
-        Orientation = ow_ecs:get(orientation, ComponentList),
+        Thrust = ow_ecs2:get(thrust, ComponentList),
+        Orientation = ow_ecs2:get(orientation, ComponentList),
         RotatedThrust = rotate_ccw(Thrust, Orientation),
         TempList = binary:bin_to_list(RotatedThrust),
         lists:zipwith(fun(X, Y) -> X + Y end, TempList, AccIn)
@@ -273,7 +297,7 @@ thrust(ID, World) ->
 torque(ID, World) ->
     WithTorque = match_subcomponents(torque, ID, World),
     F = fun(ComponentList, AccIn) ->
-        ow_ecs:get(torque, ComponentList) + AccIn
+        ow_ecs2:get(torque, ComponentList) + AccIn
     end,
     lists:foldl(F, 0, WithTorque).
 
@@ -281,11 +305,11 @@ map_cells(ID, World) ->
     % Get child IDs
     % Return the cell (in network format)
     % Get the shipgrid
-    ComponentList = ow_ecs:entity(ID, World),
-    Children = ow_ecs:get(children, ComponentList),
+    ComponentList = ow_ecs2:entity(ID, World),
+    Children = ow_ecs2:get(children, ComponentList),
     % For each child, get the cell
     F = fun(ChID, Acc) ->
-                ChildComp = ow_ecs:entity(ChID, World),
+                ChildComp = ow_ecs2:entity(ChID, World),
                 M = maps:from_list(ChildComp),
                 M1 = M#{ id => ChID },
                 [ ow_vector:to_proto(M1) | Acc ]
@@ -295,29 +319,31 @@ map_cells(ID, World) ->
 cell({X,Y}, ID, World) ->
     % Return the cell (in network format)
     % Get the shipgrid
-    {ID, ComponentList} = ow_ecs:entity(ID, World),
-    ShipGrid = ow_ecs:get(shipgrid, ComponentList),
+    {ID, ComponentList} = ow_ecs2:entity(ID, World),
+    ShipGrid = ow_ecs2:get(shipgrid, ComponentList),
     % Get the cell
     Cell = maps:get({X,Y}, ShipGrid),
     % Get the child ID
     #{ data := ChildID } = Cell,
     % Get the child entity
-    {ChildID, ChComponentList} = ow_ecs:entity(ChildID, World),
+    {ChildID, ChComponentList} = ow_ecs2:entity(ChildID, World),
     ChComponentList.
 
 
 netformat(ID, World) ->
-    Components = ow_ecs:entity(ID, World),
-    Phys = ow_ecs:get(phys, Components),
-    Pivot = ow_vector:vector_map(ow_ecs:get(pivot, Components)),
-    Reactor = ow_ecs:get(reactor, Components),
-    Thrust = ow_ecs:get(thrust, Components),
-    Torque = ow_ecs:get(torque, Components),
-    AngularMass = ow_ecs:get(angular_mass, Components),
+    Components = ow_ecs2:entity(ID, World),
+    Phys = ow_ecs2:get(phys, Components),
+    Pivot = ow_vector:vector_map(ow_ecs2:get(pivot, Components)),
+    Hull = ow_vector:rect_to_maps(ow_ecs2:get(hull, Components)),
+    Reactor = ow_ecs2:get(reactor, Components),
+    Thrust = ow_ecs2:get(thrust, Components),
+    Torque = ow_ecs2:get(torque, Components),
+    AngularMass = ow_ecs2:get(angular_mass, Components),
     Cells = map_cells(ID, World),
     #{
       phys => Phys,
       pivot => Pivot,
+      hull => Hull,
       torque => Torque,
       angular_mass => AngularMass,
       reactor => Reactor,
@@ -342,7 +368,7 @@ instance_module(Coords, Type, Orientation, ParentID, World) ->
     DefaultComponents = maps:get(Type, DefaultModules),
     % Create the component instance in ECS
     ModuleID = erlang:unique_integer(),
-    ow_ecs:add_components(Components ++ DefaultComponents, ModuleID, World),
+    ow_ecs2:add_components(Components ++ DefaultComponents, ModuleID, World),
     % Return the child ID back to the caller
     ModuleID.
 

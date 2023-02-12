@@ -26,33 +26,33 @@ key_table(ZD) ->
         {'ROTATE_RIGHT', fun(ID, _, W) -> apply(rotate, right, ZD, ID, W) end}
     ].
 
--spec proc_phys(ow_ecs:world(), term()) -> ok.
-proc_phys(World, ZoneData) -> 
+-spec proc_phys(ow_ecs2:world(), term()) -> ok.
+proc_phys(ZoneData, World) -> 
     % Match the input and components for any changes this tick
-    Actors = ow_ecs:match_components([input, phys], World),
+    Actors = ow_ecs2:match_components([input, phys], World),
     % Apply the input for any player who has the input component, then zero out
     % the component.
     process_actors(Actors, ZoneData, World),
     % Update positions, including non-actors
-    PhysEntities = ow_ecs:match_component(phys, World),
+    PhysEntities = ow_ecs2:match_component(phys, World),
     update_positions(PhysEntities, ZoneData, World).
 
 % Recurse over all of the actors that match the component
--spec process_actors([ow_ecs:entity()], map(), ow_ecs:world()) -> ok.
+-spec process_actors([ow_ecs2:entity()], map(), ow_ecs2:world()) -> ok.
 process_actors([], _ZoneData, _World) ->
     ok;
 process_actors([{ID, Components} | Rest], ZoneData, World) ->
-    InputList = ow_ecs:get(input, Components),
+    InputList = ow_ecs2:get(input, Components),
     ks_input:apply(InputList, ID, key_table(ZoneData), World),
     process_actors(Rest, ZoneData, World).
 
--spec apply(move(), direction(), map(), ks_actor:actor(), ow_ecs:world()) -> ok.
+-spec apply(move(), direction(), map(), ks_actor:actor(), ow_ecs2:world()) -> ok.
 apply(Type, Direction, ZoneData, ID, World) ->
-    Components = ow_ecs:entity(ID, World),
-    Phys = ow_ecs:get(phys, Components),
-    Torque = ow_ecs:get(torque, Components),
-    AngularMass = ow_ecs:get(angular_mass, Components),
-    Thrust = ow_ecs:get(thrust, Components),
+    Components = ow_ecs2:entity(ID, World),
+    Phys = ow_ecs2:get(phys, Components),
+    Torque = ow_ecs2:get(torque, Components),
+    AngularMass = ow_ecs2:get(angular_mass, Components),
+    Thrust = ow_ecs2:get(thrust, Components),
     NewPhys =
         case Type of
             impulse ->
@@ -61,7 +61,7 @@ apply(Type, Direction, ZoneData, ID, World) ->
             rotate ->
                 apply_rotation(Direction, Phys, AngularMass, Torque)
         end,
-    ow_ecs:add_component(phys, NewPhys, ID, World).
+    ow_ecs2:add_component(phys, NewPhys, ID, World).
 
 -spec apply_impulse(direction(), phys(), integer(), integer()) -> phys().
 apply_impulse(Direction, Phys, Thrust, MaxVel) ->
@@ -122,12 +122,12 @@ apply_rotation(Direction, Phys, AngularMass, Torque) ->
     Rot1 = Rot + D * (Torque / AngularMass),
     Phys#{rot => Rot1}.
 
--spec update_positions([ow_ecs:entity()], term(), ow_ecs:world()) -> ok.
+-spec update_positions([ow_ecs2:entity()], term(), ow_ecs2:world()) -> ok.
 update_positions([], _ZoneData, _World) ->
     ok;
 update_positions([{ID, Components} | R], ZD = #{ tick_ms := TickMs }, World) ->
     % Now apply the physics 
-    Phys = ow_ecs:get(phys, Components),
+    Phys = ow_ecs2:get(phys, Components),
     {{Xp,Yp}, {Xv, Yv}, _Rot} = phys_to_tuple(Phys),
     DeltaT = TickMs / 1000,
     NewPos = {
@@ -135,7 +135,7 @@ update_positions([{ID, Components} | R], ZD = #{ tick_ms := TickMs }, World) ->
         Yp + (Yv * DeltaT)
     },
     Phys1 = Phys#{pos => ow_vector:vector_map(NewPos)},
-    ow_ecs:add_component(phys, Phys1, ID, World),
+    ow_ecs2:add_component(phys, Phys1, ID, World),
     %io:format("POS: ~p; VEL: ~p; ROT: ~p~n", [NewPos, {Xv,Yv}, Rot]),
     update_positions(R, ZD, World).
 

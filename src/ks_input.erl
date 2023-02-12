@@ -6,7 +6,7 @@
 % One optimization may be to do all of the manipulations here and pass the
 % entity data forward until the final entity update is complete, _then_
 % persist to ETS. Benchmark.
--spec apply(list(), integer(), list(), ow_ecs:world()) -> ok.
+-spec apply(list(), integer(), list(), ow_ecs2:world()) -> ok.
 apply([], _ID, _KeyList, _World) ->
     ok;
 apply([Input | Rest], ID, Actions, World) ->
@@ -29,17 +29,17 @@ apply([Input | Rest], ID, Actions, World) ->
 push(Input1, ID, World) ->
     logger:debug("Adding input component to ~p with data ~p", [ID, Input1]),
     % If there's already input, we need to merge it.
-    case ow_ecs:try_component(input, ID, World) of
+    case ow_ecs2:try_component(input, ID, World) of
         false ->
             % Just add it
-            ow_ecs:add_component(input, [Input1], ID, World);
+            ow_ecs2:add_component(input, [Input1], ID, World);
         Components ->
-            Input0 = ow_ecs:get(input, Components),
+            Input0 = ow_ecs2:get(input, Components),
             Input = [Input1 | Input0],
-            ow_ecs:add_component(input, Input, ID, World)
+            ow_ecs2:add_component(input, Input, ID, World)
     end.
 
 proc_reset(World) ->
     % Get all entities with input
-    E = ow_ecs:match_component(input, World),
-    [ow_ecs:del_component(input, ID, World) || {ID, _} <- E].
+    E = ow_ecs2:match_component(input, World),
+    [ow_ecs2:del_component(input, ID, World) || {ID, _} <- E].

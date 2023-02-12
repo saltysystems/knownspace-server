@@ -5,12 +5,12 @@
 % These will need to be based on database or ETS lookups, ultimately. Or
 % derived based on a mix.
 -define(TTL, 5000).
--define(SPEED, 300).
+-define(SPEED, 600).
 -define(HITBOX, [
-    {-10, -10},
-    {-10, 10},
-    {10, -10},
-    {10, 10}
+    {-2, -2},
+    {-2, 2},
+    {2, 2},
+    {2, -2}
 ]).
 -define(SHOOT_POWER, 35).
 
@@ -31,14 +31,14 @@ proc_projectile(World) ->
 
 notify(World) ->
     % Match the list of projectiles that are new in the last tick
-    Projectiles = ow_ecs:match_components([projectile, ttl], World),
+    Projectiles = ow_ecs2:match_components([projectile, ttl], World),
     Fun =
         fun(E = {_ID, Components}, AccIn) ->
-            TTL = ow_ecs:get(ttl, Components),
+            TTL = ow_ecs2:get(ttl, Components),
             case TTL of
                 ?TTL ->
                     % New projectile made this tick
-                    [ow_ecs:to_map(E) | AccIn];
+                    [ow_ecs2:to_map(E) | AccIn];
                 _Other ->
                     AccIn
             end
@@ -48,16 +48,16 @@ notify(World) ->
 new_projectiles_from_input(World) ->
     % Match the list of actors that have input this tick and see if any ask to
     % create new projectiles
-    Actors = ow_ecs:match_components([input, reactor], World),
+    Actors = ow_ecs2:match_components([input, reactor], World),
     Fun = fun({ID, Components}) ->
-        InputList = ow_ecs:get(input, Components),
+        InputList = ow_ecs2:get(input, Components),
         ks_input:apply(InputList, ID, key_table(), World)
     end,
     lists:foreach(Fun, Actors).
 
 shoot_if_powered(Owner, Cursor, World) ->
-    Components = ow_ecs:entity(Owner, World),
-    ReactorMap = ow_ecs:get(reactor, Components),
+    Components = ow_ecs2:entity(Owner, World),
+    ReactorMap = ow_ecs2:get(reactor, Components),
     Charge = maps:get(now, ReactorMap),
     if
         Charge >= ?SHOOT_POWER ->
@@ -65,8 +65,7 @@ shoot_if_powered(Owner, Cursor, World) ->
             create_projectile(Owner, Cursor, World),
             % Subtract juice from the reactor
             NewCharge = Charge - ?SHOOT_POWER,
-            logger:notice("New Charge is: ~p", [NewCharge]),
-            ow_ecs:add_component(
+            ow_ecs2:add_component(
                 reactor,
                 ReactorMap#{now => NewCharge},
                 Owner,
@@ -78,8 +77,8 @@ shoot_if_powered(Owner, Cursor, World) ->
     end.
 
 create_projectile(Owner, Cursor, World) ->
-    Components = ow_ecs:entity(Owner, World),
-    Phys = ow_ecs:get(phys, Components),
+    Components = ow_ecs2:entity(Owner, World),
+    Phys = ow_ecs2:get(phys, Components),
     % Match the subcomponents that have some sort of weapon attached
     %B = ks_shipgrid:match_subcomponents(action, 
     % Draw a line between the cursor position and the actor's current position
@@ -112,38 +111,38 @@ create_projectile(Owner, Cursor, World) ->
     % ms
     TTL = ?TTL,
     CreateTime = erlang:system_time(),
-    ow_ecs:add_component(projectile, true, ID, World),
-    ow_ecs:add_component(type, Type, ID, World),
-    ow_ecs:add_component(owner, Owner, ID, World),
-    ow_ecs:add_component(phys, ProjPhys, ID, World),
-    ow_ecs:add_component(hitbox, Hitbox, ID, World),
-    ow_ecs:add_component(ttl, TTL, ID, World),
-    ow_ecs:add_component(create_time, CreateTime, ID, World).
+    ow_ecs2:add_component(projectile, true, ID, World),
+    ow_ecs2:add_component(type, Type, ID, World),
+    ow_ecs2:add_component(owner, Owner, ID, World),
+    ow_ecs2:add_component(phys, ProjPhys, ID, World),
+    ow_ecs2:add_component(hitbox, Hitbox, ID, World),
+    ow_ecs2:add_component(ttl, TTL, ID, World),
+    ow_ecs2:add_component(create_time, CreateTime, ID, World).
 
 update_and_expire(World) ->
-    Projectiles = ow_ecs:match_component(ttl, World),
+    Projectiles = ow_ecs2:match_component(ttl, World),
     Fun =
         fun({ID, Components}) ->
-            Remaining = ow_ecs:get(ttl, Components),
+            Remaining = ow_ecs2:get(ttl, Components),
             case Remaining =< 0 of
                 true ->
                     % Delete the entity
-                    ow_ecs:rm_entity(ID, World);
+                    ow_ecs2:rm_entity(ID, World);
                 false ->
                     % Tick down
                     Now = erlang:system_time(),
-                    CreateTime = ow_ecs:get(create_time, Components),
+                    CreateTime = ow_ecs2:get(create_time, Components),
                     Delta = Now - CreateTime,
                     T = erlang:convert_time_unit(Delta, native, millisecond),
-                    ow_ecs:add_component(ttl, ?TTL - T, ID, World)
+                    ow_ecs2:add_component(ttl, ?TTL - T, ID, World)
             end
         end,
     lists:foreach(Fun, Projectiles).
 
 delete_collided(World) ->
-    Projectiles = ow_ecs:match_component(collision, World),
+    Projectiles = ow_ecs2:match_component(collision, World),
     Fun =
         fun({ID, _Components}) ->
-            ow_ecs:rm_entity(ID, World)
+            ow_ecs2:rm_entity(ID, World)
         end,
     lists:foreach(Fun, Projectiles).

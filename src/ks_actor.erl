@@ -22,24 +22,24 @@ new(Handle, ID, World) ->
 
 -spec rm(id(), atom()) -> ok.
 rm(ID, World) ->
-    ow_ecs:rm_entity(ID, World).
+    ow_ecs2:rm_entity(ID, World).
 
 get_all(World) ->
-    Actors = ow_ecs:match_component(actor, World),
+    Actors = ow_ecs2:match_component(actor, World),
     F = 
         fun({ID, Components}, AccIn) ->
             A = #{ id => ID,
-                   handle => ow_ecs:get(handle, Components, unknown),
+                   handle => ow_ecs2:get(handle, Components, unknown),
                    ship => ks_shipgrid:netformat(ID, World)
                  },
             [A | AccIn]
         end,
     lists:foldl(F, [], Actors).
 
--spec map(ow_ecs:entity()) -> map().
+-spec map(ow_ecs2:entity()) -> map().
 map(Actor) ->
-    ow_ecs:to_map(Actor).
+    ow_ecs2:to_map(Actor).
 
 -spec update_latency(pos_integer(), id(), atom()) -> ok.
 update_latency(Latency, ID, World) ->
-    ow_ecs:add_component(latency, Latency, ID, World).
+    ow_ecs2:add_component(latency, Latency, ID, World).
