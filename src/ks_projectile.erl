@@ -30,7 +30,8 @@ proc_projectile(World) ->
     delete_collided(World).
 
 notify(World) ->
-    % Match the list of projectiles that are new in the last tick
+    % Match the list of projectiles that are new in the last tick and put them
+    % in network format
     Projectiles = ow_ecs2:match_components([projectile, ttl], World),
     Fun =
         fun(E = {_ID, Components}, AccIn) ->
@@ -38,7 +39,7 @@ notify(World) ->
             case TTL of
                 ?TTL ->
                     % New projectile made this tick
-                    [ow_ecs2:to_map(E) | AccIn];
+                    [ow_netfmt:to_proto(ow_ecs2:to_map(E)) | AccIn];
                 _Other ->
                     AccIn
             end
@@ -77,21 +78,24 @@ shoot_if_powered(Owner, Cursor, World) ->
     end.
 
 create_projectile(Owner, Cursor, World) ->
+    % TODO-MAYBE:
+    %    % Match the subcomponents that have some sort of weapon attached
+    %    B = ks_shipgrid:match_subcomponents(action,
+    %    % Snap the point to the arc of the weapon..
+    %    % https://stackoverflow.com/questions/6270785
     Components = ow_ecs2:entity(Owner, World),
-    Phys = ow_ecs2:get(phys, Components),
-    % Match the subcomponents that have some sort of weapon attached
-    %B = ks_shipgrid:match_subcomponents(action, 
+    Kinematics = ow_ecs2:get(kinematics, Components),
     % Draw a line between the cursor position and the actor's current position
     % to get a direction vector.
     #{x := Xc, y := Yc} = Cursor,
-    % Snap the point to the arc.. TODO-FEATURE
-    % https://stackoverflow.com/questions/6270785
-    {Pos = {Xe, Ye}, _Vel, _Rot} = ks_phys:phys_to_tuple(Phys),
+    #{pos_t := Pos} = Kinematics,
+    {Xe, Ye} = Pos,
     % Normalize the vector, ensure its nonzero, and scale it.
     Speed = ?SPEED,
     Direction = {Xc - Xe, Yc - Ye},
     % test the length of the direction. if it's ~0 , then make it non-zero so
     % it can be normalized
+    % FIXME. This is an ugly hack. At least randomize the direction. SAD!
     SanitizedDir =
         case Direction of
             {0.0, 0.0} -> {0.1, 0.1};
@@ -100,21 +104,24 @@ create_projectile(Owner, Cursor, World) ->
         end,
     Vel = ow_vector:scale(ow_vector:normalize(SanitizedDir), Speed),
     ID = erlang:unique_integer(),
-    ProjPhys =
+    ProjKinematics =
         #{
-            pos => ow_vector:vector_map(Pos),
-            vel => ow_vector:vector_map(Vel),
-            rot => 0
+            pos_t => Pos,
+            vel_t => Vel,
+            % no rotation
+            pos_r => 0,
+            % no rotational velocity
+            vel_r => 0
         },
     Type = ks_pb:enum_value_by_symbol(action_type, 'BALLISTIC'),
-    Hitbox = ow_vector:rect_to_maps(?HITBOX),
+    Hitbox = ?HITBOX,
     % ms
     TTL = ?TTL,
     CreateTime = erlang:system_time(),
     ow_ecs2:add_component(projectile, true, ID, World),
     ow_ecs2:add_component(type, Type, ID, World),
     ow_ecs2:add_component(owner, Owner, ID, World),
-    ow_ecs2:add_component(phys, ProjPhys, ID, World),
+    ow_ecs2:add_component(kinematics, ProjKinematics, ID, World),
     ow_ecs2:add_component(hitbox, Hitbox, ID, World),
     ow_ecs2:add_component(ttl, TTL, ID, World),
     ow_ecs2:add_component(create_time, CreateTime, ID, World).

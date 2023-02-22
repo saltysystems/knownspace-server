@@ -1,41 +1,53 @@
 -module(ks_phys).
 
--export([proc_phys/2, apply/5, phys_to_tuple/1]).
+-export([proc_phys/2, apply/4]).
 
 -type direction() :: fwd | rev | left | right.
 -type move() :: impulse | rotate.
 -type vector() :: ow_vector:vector().
--type vector_map() :: #{
-    x => number(),
-    y => number()
-}.
--type phys() :: #{
-    pos => vector_map(),
-    vel => vector_map(),
-    rot => number()
+-type kinematics() :: #{
+    pos_t := vector(),
+    vel_t := vector(),
+    pos_r := number(),
+    vel_r => number()
 }.
 
--spec key_table(map()) -> list().
-key_table(ZD) ->
+-spec key_table() -> list().
+key_table() ->
     [
-        {'IMPULSE_FWD', fun(ID, _, W) -> apply(impulse, fwd, ZD, ID, W) end},
-        {'IMPULSE_REV', fun(ID, _, W) -> apply(impulse, rev, ZD, ID, W) end},
-        {'IMPULSE_LEFT', fun(ID, _, W) -> apply(impulse, left, ZD, ID, W) end},
-        {'IMPULSE_RIGHT', fun(ID, _, W) -> apply(impulse, right, ZD, ID, W) end},
-        {'ROTATE_LEFT', fun(ID, _, W) -> apply(rotate, left, ZD, ID, W) end},
-        {'ROTATE_RIGHT', fun(ID, _, W) -> apply(rotate, right, ZD, ID, W) end}
+        {'IMPULSE_FWD', fun(ID, _, W) -> apply(impulse, fwd, ID, W) end},
+        {'IMPULSE_REV', fun(ID, _, W) -> apply(impulse, rev, ID, W) end},
+        {'IMPULSE_LEFT', fun(ID, _, W) -> apply(impulse, left, ID, W) end},
+        {'IMPULSE_RIGHT', fun(ID, _, W) -> apply(impulse, right, ID, W) end},
+        {'ROTATE_LEFT', fun(ID, _, W) -> apply(rotate, left, ID, W) end},
+        {'ROTATE_RIGHT', fun(ID, _, W) -> apply(rotate, right, ID, W) end}
     ].
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% DEFINITIONS                                                         %
+% ------------------------------------------------------------------- %
+% Property     | Linear    | Rotational                               %
+% ------------------------------------------------------------------- %
+% Position     | pos_t     | pos_r                                    %
+% Velocity     | vel_t     | vel_r                                    %
+% Acceleration | acc_t     | acc_r                                    %
+% Mass         | mass      | angular_mass                             %
+% Force        | thrust    | torque                                   %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 -spec proc_phys(ow_ecs2:world(), term()) -> ok.
-proc_phys(ZoneData, World) -> 
+proc_phys(ZoneData, World) ->
     % Match the input and components for any changes this tick
-    Actors = ow_ecs2:match_components([input, phys], World),
+    Actors = ow_ecs2:match_components([input, kinematics], World),
     % Apply the input for any player who has the input component, then zero out
     % the component.
     process_actors(Actors, ZoneData, World),
-    % Update positions, including non-actors
-    PhysEntities = ow_ecs2:match_component(phys, World),
-    update_positions(PhysEntities, ZoneData, World).
+    % Get the entities and update rotations
+    PhysEntities = ow_ecs2:match_component(kinematics, World),
+    update_rotation(PhysEntities, ZoneData, World),
+    % Then do it again for positions
+    PhysEntities1 = ow_ecs2:match_component(kinematics, World),
+    update_position(PhysEntities1, ZoneData, World).
 
 % Recurse over all of the actors that match the component
 -spec process_actors([ow_ecs2:entity()], map(), ow_ecs2:world()) -> ok.
@@ -43,34 +55,35 @@ process_actors([], _ZoneData, _World) ->
     ok;
 process_actors([{ID, Components} | Rest], ZoneData, World) ->
     InputList = ow_ecs2:get(input, Components),
-    ks_input:apply(InputList, ID, key_table(ZoneData), World),
+    ks_input:apply(InputList, ID, key_table(), World),
     process_actors(Rest, ZoneData, World).
 
--spec apply(move(), direction(), map(), ks_actor:actor(), ow_ecs2:world()) -> ok.
-apply(Type, Direction, ZoneData, ID, World) ->
+-spec apply(move(), direction(), ks_actor:actor(), ow_ecs2:world()) -> ok.
+apply(Type, Direction, ID, World) ->
     Components = ow_ecs2:entity(ID, World),
-    Phys = ow_ecs2:get(phys, Components),
+    Kinematics = ow_ecs2:get(kinematics, Components),
     Torque = ow_ecs2:get(torque, Components),
     AngularMass = ow_ecs2:get(angular_mass, Components),
     Thrust = ow_ecs2:get(thrust, Components),
-    NewPhys =
+    Mass = ow_ecs2:get(mass, Components),
+    UpdatedKinematics =
         case Type of
             impulse ->
-                MaxVel = ks_zone2:get_env(max_vel, ZoneData),
-                apply_impulse(Direction, Phys, Thrust, MaxVel);
+                apply_impulse(Direction, Kinematics, Mass, Thrust);
             rotate ->
-                apply_rotation(Direction, Phys, AngularMass, Torque)
+                % TODO: Add MaxRot
+                apply_rotation(Direction, Kinematics, AngularMass, Torque)
         end,
-    ow_ecs2:add_component(phys, NewPhys, ID, World).
+    ow_ecs2:add_component(kinematics, UpdatedKinematics, ID, World).
 
--spec apply_impulse(direction(), phys(), integer(), integer()) -> phys().
-apply_impulse(Direction, Phys, Thrust, MaxVel) ->
+-spec apply_impulse(direction(), kinematics(), integer(), integer()) -> kinematics().
+apply_impulse(Direction, Kinematics, _Mass, Thrust) ->
     % Apply an impulse in a direction increases or decreases the velocity
     % vector by a fixed amount.
     <<LThrust:8, BThrust:8, RThrust:8, TThrust:8>> = Thrust,
     % Get the current velocity
-    {_Pos, {Xv, Yv}, Rot} = phys_to_tuple(Phys),
-    % 1 keypress = Vector2(0,-1) * Speed
+    #{vel_t := {Xv, Yv}, pos_r := Rot} = Kinematics,
+    logger:notice("Velocity is: ~p", [{Xv, Yv}]),
     Vel1 =
         case Direction of
             % The direction of movement is opposite the thrust direction
@@ -91,56 +104,88 @@ apply_impulse(Direction, Phys, Thrust, MaxVel) ->
     {Xv2, Yv2} = ow_vector:rotate(Vel1, Rot),
     % Subtract (negative Y is up) from the original vector
     Vel3 = {Xv - Xv2, Yv - Yv2},
-    % Cap the max velocity based on the zone speed limit
-    Vel4 =
-        case ow_vector:length_squared(Vel3) > math:pow(MaxVel, 2) of
-            true ->
-                ow_vector:scale(ow_vector:normalize(Vel3), MaxVel);
-            false ->
-                Vel3
-        end,
-    % Update the physics component
-    Phys#{vel => ow_vector:vector_map(Vel4)}.
+    Kinematics#{vel_t := Vel3}.
 
--spec apply_rotation(left | right, phys(), float(), integer()) -> phys().
-apply_rotation(Direction, Phys, AngularMass, Torque) ->
-    % For now, we ignore angular mass and fake this calculation. 
-    % TODO-FEATURE: Add some mass into the equation, calculate the rotational
-    % position (currently called rot) and the rotational velocity
-    {_Pos, _Vel, Rot} = phys_to_tuple(Phys),
+-spec apply_rotation(left | right, kinematics(), float(), integer()) -> kinematics().
+apply_rotation(Direction, Kinematics, AngularMass, Torque) ->
+    #{vel_r := VelR} = Kinematics,
     D =
         case Direction of
             right -> 1.0;
             left -> -1.0
         end,
-    % should be:
-    % ra = T/I 
-    % rv = ra * DeltaT 
-    % But that's not what we're calculating here because we want to know the
-    % exact rotation. This really should be the rotational velocity we're
-    % calculating but we fudge it a bit :)
-    Rot1 = Rot + D * (Torque / AngularMass),
-    Phys#{rot => Rot1}.
+    VelR1 = VelR + D * (Torque / AngularMass),
+    Kinematics#{vel_r := VelR1}.
 
--spec update_positions([ow_ecs2:entity()], term(), ow_ecs2:world()) -> ok.
-update_positions([], _ZoneData, _World) ->
+%-spec update_translation([ow_ecs2:entity()], term(), ow_ecs2:world()) -> ok.
+%update_translation([], _ZoneData, _World) ->
+%    ok;
+%update_translation([{ID, Components} | R], ZoneData, World) ->
+%    #{tick_ms := TickMs, env := Env } = ZoneData,
+%    #{ max_vel_t := MaxVel } = Env,
+%    % Now apply the physics
+%    Kinematics = ow_ecs2:get(kinematics, Components),
+%    #{pos_t := Pos0, vel_t := Vel0} = Kinematics,
+%    {Xp, Yp} = Pos0 ,
+%    {Xv1, Yv1} =
+%        case ow_vector:length_squared(Vel0) > math:pow(MaxVel, 2) of
+%            true ->
+%                Vel1 = ow_vector:scale(ow_vector:normalize(Vel0), MaxVel),
+%                Vel1;
+%            false ->
+%                Vel0
+%        end,
+%    logger:notice("Pos: ~p, Vel: ~p", [Pos0, {Xv1, Yv1}]),
+%    DeltaT = TickMs / 1000,
+%    NewPos = {
+%        Xp + (Xv1 * DeltaT),
+%        Yp + (Yv1 * DeltaT)
+%    },
+%    KinematicsUpdate = Kinematics#{
+%                         pos_t := NewPos,
+%                         vel_t := {Xv1, Yv1}
+%                        },
+%    ow_ecs2:add_component(kinematics, KinematicsUpdate, ID, World),
+%    % Debug harness
+%    Components1 = ow_ecs2:try_component(kinematics, ID, World),
+%    Result = ow_ecs2:get(kinematics, Components1),
+%    logger:notice("Result is: ~p", [Result]),
+%    %
+%    update_translation(R, ZoneData, World).
+
+-spec update_rotation([ow_ecs2:entity()], term(), ow_ecs2:world()) -> ok.
+update_rotation([], _ZoneData, _World) ->
     ok;
-update_positions([{ID, Components} | R], ZD = #{ tick_ms := TickMs }, World) ->
-    % Now apply the physics 
-    Phys = ow_ecs2:get(phys, Components),
-    {{Xp,Yp}, {Xv, Yv}, _Rot} = phys_to_tuple(Phys),
+update_rotation([{ID, Components} | R], ZD = #{tick_ms := TickMs}, World) ->
+    % Now apply the physics
+    Kinematics = ow_ecs2:get(kinematics, Components),
+    #{pos_r := RotP, vel_r := RotV, acc_r := RotA} = Kinematics,
     DeltaT = TickMs / 1000,
-    NewPos = {
-        Xp + (Xv * DeltaT),
-        Yp + (Yv * DeltaT)
-    },
-    Phys1 = Phys#{pos => ow_vector:vector_map(NewPos)},
-    ow_ecs2:add_component(phys, Phys1, ID, World),
-    %io:format("POS: ~p; VEL: ~p; ROT: ~p~n", [NewPos, {Xv,Yv}, Rot]),
-    update_positions(R, ZD, World).
+    RotV1 = RotV + RotA * DeltaT,
+    RotP1 = RotP + RotV1 * DeltaT,
+    KinematicsUpdate = Kinematics#{pos_r := RotP1, vel_r := RotV1},
+    ow_ecs2:add_component(kinematics, KinematicsUpdate, ID, World),
+    update_rotation(R, ZD, World).
 
--spec phys_to_tuple(map()) -> {vector(), vector(), integer()}.
-phys_to_tuple(#{pos := #{x := Xp, y := Yp}, vel := #{x := Xv, y := Yv}, rot := Rot}) ->
-    Pos = {Xp, Yp},
-    Vel = {Xv, Yv},
-    {Pos, Vel, Rot}.
+-spec update_position([ow_ecs2:entity()], term(), ow_ecs2:world()) -> ok.
+update_position([], _ZoneData, _World) ->
+    ok;
+update_position([{ID, Components} | R], ZoneData, World) ->
+    #{tick_ms := TickMs, env := Env} = ZoneData,
+    #{max_vel_t := MaxVel} = Env,
+    % Now apply the physics
+    Kinematics = ow_ecs2:get(kinematics, Components),
+    #{pos_t := Pos, vel_t := Vel} = Kinematics,
+    DeltaT = TickMs / 1000,
+    % Fix the velocity to the environment maximum
+    Vel1 =
+        case ow_vector:length_squared(Vel) > math:pow(MaxVel, 2) of
+            true ->
+                ow_vector:scale(ow_vector:normalize(Vel), MaxVel);
+            false ->
+                Vel
+        end,
+    Pos1 = ow_vector:add(Pos, ow_vector:scale(Vel1, DeltaT)),
+    KinematicsUpdate = Kinematics#{pos_t := Pos1, vel_t := Vel1},
+    ow_ecs2:add_component(kinematics, KinematicsUpdate, ID, World),
+    update_position(R, ZoneData, World).

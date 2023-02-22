@@ -19,6 +19,11 @@
     get_env/2
 ]).
 
+% NPC functions
+-export([
+    area_search/2
+]).
+
 % Allow instantiating multiple instances of zones
 %-define(SERVER(Name), {via, gproc, {n, l, {?MODULE, Name}}}).
 -define(SERVER, ?MODULE).
@@ -128,8 +133,12 @@ input(Msg, Session) ->
             ow_zone:rpc(?SERVER, input, Msg, Session)
     end.
 
+% Privileged RPCs (server-side)
+area_search(Msg, Session) ->
+    ow_zone:rpc(?SERVER, area_search, Msg, Session).
+
 -spec get_env(atom(), map()) -> term().
-get_env(Key, #{ env := Env}) ->
+get_env(Key, #{env := Env}) ->
     maps:get(Key, Env, undefined).
 
 %%%====================================================================
@@ -150,7 +159,7 @@ init([]) ->
     %%ow_ecs:add_system({ks_collision_ray, proc_collision, 2}, 300, World),
     {ok, W5} = ow_ecs2:add_system({ks_input, proc_reset, 1}, 900, W4),
     % Configure the initial state
-    TickMs = 40,
+    TickMs = 50,
     Config = #{tick_ms => TickMs},
     InitialZoneState =
         #{
@@ -175,15 +184,17 @@ handle_join(Msg, Session, State = #{ecs_world := World}) ->
     PlayerInfo = #{handle => Handle},
     % Add the actor to the ECS
     Actor = ks_actor:new(Handle, ID, World),
+    % Encode in network format
+    ActorNetFmt = ow_netfmt:to_proto(Actor),
     % Let everyone else know that the Player has joined
-    ow_zone:broadcast(self(), {actor, Actor}),
+    ow_zone:broadcast(self(), {actor, ActorNetFmt}),
     % Build a reply to the player with information about actors who joined
     % before them.
-    Actors = ks_actor:get_all(World),
+    Actors = ks_actor:get_all_net(World),
     ZoneXfer = #{
-        tick_ms     => maps:get(tick_ms, State),
-        env         => maps:get(env, State),
-        entities    => Actors,
+        tick_ms => maps:get(tick_ms, State),
+        env => maps:get(env, State),
+        entities => Actors,
         projectiles => ks_projectile:notify(World)
     },
     Reply = {{'@', [ID]}, {zone_transfer, ZoneXfer}},
@@ -217,7 +228,22 @@ handle_rpc(input, Msg, Session, State = #{ecs_world := World}) ->
     % Update the latency
     %ks_actor:update_latency(Latency, ID, World),
     ks_input:push(Msg, ID, World),
-    {noreply, ok, State}.
+    {noreply, ok, State};
+handle_rpc(area_search, Msg, Session, State) ->
+    % Internal RPCs - don't expose these to external clients without
+    % considering the ramifications!
+    % Get the boundary and ECS handle
+    #{ecs_world := World, boundary := QuadTree} = State,
+    % Should we really transmit the session
+    ID = ow_session:get_id(Session),
+    % IDs around or make new ones?? See NOTES-1
+    #{range := Range} = Msg,
+    Entity = ow_ecs2:entity(ID, World),
+    #{pos_t := Pos} = ow_ecs2:get(kinematics, Entity),
+    PositionTuple = ow_vector:vector_tuple(Pos),
+    Results = ks_area:search(PositionTuple, Range, QuadTree, World),
+    Reply = {{'@', [ID]}, {area_result, Results}},
+    {Reply, ok, State}.
 
 handle_tick(TickMs, State = #{ecs_world := World}) ->
     %State1 = update_gamestate(TickMs, State),
@@ -228,16 +254,16 @@ handle_tick(TickMs, State = #{ecs_world := World}) ->
     ZoneData = State,
     ow_ecs2:proc(ZoneData, World),
     End = erlang:system_time(),
-    Delta = erlang:convert_time_unit(End-Start, native, millisecond),
-    case Delta > TickMs/2 of
-        true -> 
-            logger:notice("Frame delta more than half of frame time");
-        false -> 
+    Delta = erlang:convert_time_unit(End - Start, native, millisecond),
+    case Delta > TickMs / 2 of
+        true ->
+            logger:notice("Frame delta more than half of frame time!");
+        false ->
             ok
     end,
     %io:format("Phys updates: ~p~n", [get_actor_phys(World)]),
     ToXfer = #{
-        phys_updates => get_actor_phys(World),
+        actors => ks_actor:updates_net(World),
         projectiles => ks_projectile:notify(World),
         collisions => ks_collision:notify(World)
     },
@@ -248,19 +274,10 @@ handle_tick(TickMs, State = #{ecs_world := World}) ->
 %%% Internal Functions
 %%%====================================================================
 
--spec get_actor_phys(term()) -> [map()].
-get_actor_phys(World) ->
-    % Get all actors
-    Actors = ks_actor:get_all(World),
-    F = fun(#{ id := ID, ship := Ship}, AccIn) ->
-                Phys = maps:get(phys, Ship),
-                [ #{ id => ID, phys => Phys } | AccIn ]
-        end,
-    lists:foldl(F, [], Actors).
-
 -spec init_environment() -> map().
 init_environment() ->
     % Initialize the Environment.
-    #{ 
-      max_vel => ?DEFAULT_MAX_VEL
-     }.
+    #{
+        max_vel_t => ?DEFAULT_MAX_VEL,
+        max_vel_r => ?DEFAULT_MAX_VEL
+    }.

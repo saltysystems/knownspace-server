@@ -20,7 +20,7 @@
  {<<"meck">>,{pkg,<<"meck">>,<<"0.9.2">>},1},
  {<<"overworld">>,
   {git,"https://github.com/saltysystems/overworld.git",
-       {ref,"e02ab172f7c71a8bee2a52beda8dafdffe24de17"}},
+       {ref,"ed38c482b6b428eed4e05e23bd8ac4732da94ee1"}},
   0},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.8.0">>},2}]}.
 [

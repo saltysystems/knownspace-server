@@ -43,21 +43,26 @@ message vector2 {
     required float y = 2;
 }
 
-// kinematics - describe the physics of the object     
 message kinematics { 
-    required float   rot = 1;
-    required vector2 pos = 2;
-    required vector2 vel = 3;
+    // TODO: Change to optional as needed. e.g., positions may not be needed
+    // all the time.
+    required float   pos_r = 1;  // rotational position
+    required float   vel_r = 2;  // rotational velocity
+    required float   acc_r = 3;  // rotational acceleration
+    required vector2 pos_t = 4;  // translational position
+    required vector2 vel_t = 5;  // translational velocity
+    required vector2 acc_t = 6;  // translational acceleration
+}
+
+// instruct the client of the zone conditions
+message environment {
+    required float max_vel_t = 1; // vector2.length()
+    required float max_vel_r = 2; 
 }
 
 // instruct the client that the following entities collided
 message collision {
     repeated sint64 id = 1; 
-}
-
-// instruct the client of the zone conditions
-message environment {
-    required uint32 max_vel = 1;
 }
 
 ////////////////////////////////////////////////////////////
@@ -86,14 +91,15 @@ message cell {
 
 // Serialize a ship grid
 message ship {
-    required kinematics phys         = 1;
-    required vector2    pivot        = 2; 
-    required reactor    reactor      = 3;
-    required bytes      thrust       = 4;
-    required float      angular_mass = 5;
-    required uint32     torque       = 6;
-    repeated cell       cells        = 7;
-    repeated vector2    hull         = 8;
+    required kinematics kinematics     = 1;
+    required float      mass           = 2; // translational mass
+    required vector2    center_of_mass = 3; // center of mass
+    required float      angular_mass   = 4; // moment of inertia
+    required float      torque         = 5;
+    required bytes      thrust         = 6; // <Left,Bottom,Right,Top>
+    required reactor    reactor        = 7; // ship's reactor
+    repeated cell       cells          = 8; // modules
+    repeated vector2    hull           = 9; // convex hull
 }
 
 ////////////////////////////////////////////////////////////
@@ -135,9 +141,9 @@ message input {
 }
 
 // per-tick updates on the physics for every actor
-message actor_phys {
-    required sint64     id   = 1;
-    required kinematics phys = 2;
+message actor_updates {
+    required sint64     id         = 1;
+    required kinematics kinematics = 2;
 }
 
 // Send a full state transfer to a client when joining
@@ -150,7 +156,7 @@ message zone_transfer {
 
 // (frequently) transfer the current gamestate to clients
 message zone_snapshot {
-    repeated actor_phys phys_updates = 1;
-    repeated projectile projectiles  = 2;
-    repeated collision  collisions   = 3;
+    repeated actor_updates actors      = 1;
+    repeated projectile    projectiles = 2;
+    repeated collision     collisions  = 3;
 }
