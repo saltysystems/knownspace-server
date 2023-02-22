@@ -77,7 +77,7 @@ apply(Type, Direction, ID, World) ->
     ow_ecs2:add_component(kinematics, UpdatedKinematics, ID, World).
 
 -spec apply_impulse(direction(), kinematics(), integer(), integer()) -> kinematics().
-apply_impulse(Direction, Kinematics, _Mass, Thrust) ->
+apply_impulse(Direction, Kinematics, Mass, Thrust) ->
     % Apply an impulse in a direction increases or decreases the velocity
     % vector by a fixed amount.
     <<LThrust:8, BThrust:8, RThrust:8, TThrust:8>> = Thrust,
@@ -92,13 +92,13 @@ apply_impulse(Direction, Kinematics, _Mass, Thrust) ->
             % Left = Right thruster
             % Right = Left thruster
             fwd ->
-                {0 * BThrust, 1 * BThrust};
+                {0 * BThrust/Mass, 1 * BThrust/Mass};
             rev ->
-                {0 * TThrust, -1 * TThrust};
+                {0 * TThrust/Mass, -1 * TThrust/Mass};
             left ->
-                {-1 * RThrust, 0 * RThrust};
+                {-1 * RThrust/Mass, 0 * RThrust/Mass};
             right ->
-                {1 * LThrust, 0 * LThrust}
+                {1 * LThrust/Mass, 0 * LThrust/Mass}
         end,
     % Rotate the keyed vector by the current rotation
     {Xv2, Yv2} = ow_vector:rotate(Vel1, Rot),
@@ -116,42 +116,6 @@ apply_rotation(Direction, Kinematics, AngularMass, Torque) ->
         end,
     VelR1 = VelR + D * (Torque / AngularMass),
     Kinematics#{vel_r := VelR1}.
-
-%-spec update_translation([ow_ecs2:entity()], term(), ow_ecs2:world()) -> ok.
-%update_translation([], _ZoneData, _World) ->
-%    ok;
-%update_translation([{ID, Components} | R], ZoneData, World) ->
-%    #{tick_ms := TickMs, env := Env } = ZoneData,
-%    #{ max_vel_t := MaxVel } = Env,
-%    % Now apply the physics
-%    Kinematics = ow_ecs2:get(kinematics, Components),
-%    #{pos_t := Pos0, vel_t := Vel0} = Kinematics,
-%    {Xp, Yp} = Pos0 ,
-%    {Xv1, Yv1} =
-%        case ow_vector:length_squared(Vel0) > math:pow(MaxVel, 2) of
-%            true ->
-%                Vel1 = ow_vector:scale(ow_vector:normalize(Vel0), MaxVel),
-%                Vel1;
-%            false ->
-%                Vel0
-%        end,
-%    logger:notice("Pos: ~p, Vel: ~p", [Pos0, {Xv1, Yv1}]),
-%    DeltaT = TickMs / 1000,
-%    NewPos = {
-%        Xp + (Xv1 * DeltaT),
-%        Yp + (Yv1 * DeltaT)
-%    },
-%    KinematicsUpdate = Kinematics#{
-%                         pos_t := NewPos,
-%                         vel_t := {Xv1, Yv1}
-%                        },
-%    ow_ecs2:add_component(kinematics, KinematicsUpdate, ID, World),
-%    % Debug harness
-%    Components1 = ow_ecs2:try_component(kinematics, ID, World),
-%    Result = ow_ecs2:get(kinematics, Components1),
-%    logger:notice("Result is: ~p", [Result]),
-%    %
-%    update_translation(R, ZoneData, World).
 
 -spec update_rotation([ow_ecs2:entity()], term(), ow_ecs2:world()) -> ok.
 update_rotation([], _ZoneData, _World) ->
