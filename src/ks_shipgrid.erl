@@ -211,8 +211,8 @@ moment_of_inertia(CoM, ID, World) ->
                 true ->
                     % If R = 0, then this object is on top of the center of
                     % mass exactly. But I think it would be wierd and broken if
-                    % it were just 0? So let's fudge it to be a ~cuboid.
-                    (1 / 12) * Mass;
+                    % it were just 0? So let's fudge it.
+                    Mass;
                 false ->
                     % Get the constituent components and calculate the moment
                     % of inertia
@@ -221,7 +221,7 @@ moment_of_inertia(CoM, ID, World) ->
             end,
         I + AccIn
     end,
-    lists:foldl(F, 0, WithHitboxes).
+    round(lists:foldl(F, 0, WithHitboxes)).
 
 mass(ID, World) ->
     WithMass = match_subcomponents(mass, ID, World),
