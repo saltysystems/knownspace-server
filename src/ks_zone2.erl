@@ -32,7 +32,11 @@
 % Set the default buffer depth in milliseconds
 -define(DEFAULT_BUFFER_DEPTH, 500).
 % Set the default max velocity in this zone
--define(DEFAULT_MAX_VEL, 300).
+-define(DEFAULT_MAX_VELOCITY, 300).
+% Set the default max rotational velocity (in radians/sec)
+-define(DEFAULT_MAX_ROTATION, math:pi()/2).
+% Set the default tick rate in ms per tick
+-define(DEFAULT_TICK_RATE, 50).
 
 %% API
 
@@ -95,18 +99,7 @@ rpc_info() ->
 %%%====================================================================
 %%% Structures and Types
 %%%====================================================================
-%-type zone_boundary() :: number() | {number(), number(), number(), number()}.
-
--record(gamestate, {
-    actors = [] :: list(),
-    projectiles = [] :: list(),
-    new_projectiles = [] :: list(),
-    collisions = [] :: list(),
-    timestamp :: integer()
-}).
-%-type gamestate() :: #gamestate{}.
-
-%-type id() :: integer().
+% none
 
 %%%====================================================================
 %%% API
@@ -145,10 +138,6 @@ get_env(Key, #{env := Env}) ->
 %%% Callbacks
 %%%====================================================================
 init([]) ->
-    % Create an empty, new gamestate
-    GameState = #gamestate{
-        timestamp = erlang:system_time(millisecond)
-    },
     % Initialize the zone with empty buffers and some default parameters
     % Add the systems
     World = ow_ecs2:start(),
@@ -158,21 +147,22 @@ init([]) ->
     {ok, W4} = ow_ecs2:add_system({ks_collision, proc_collision, 2}, 300, W3),
     %%ow_ecs:add_system({ks_collision_ray, proc_collision, 2}, 300, World),
     {ok, W5} = ow_ecs2:add_system({ks_input, proc_reset, 1}, 900, W4),
+    {ok, W6} = ow_ecs2:add_system({ks_input, proc_debug, 2}, 900, W5),
     % Configure the initial state
-    TickMs = 50,
+    TickMs = ?DEFAULT_TICK_RATE, 
     Config = #{tick_ms => TickMs},
     InitialZoneState =
         #{
             input_buffer => [],
-            gamestate_buffer => [GameState],
             % milliseconds
             buffer_depth => ?DEFAULT_BUFFER_DEPTH,
             % radial
             boundary => ow_collision:new(?DEFAULT_BOUNDARY, 5),
-            ecs_world => W5,
+            ecs_world => W6,
             % not ideal this has to be specified twice
             tick_ms => TickMs,
-            env => init_environment()
+            env => init_environment(),
+            frame => 0 % Frame number
         },
     {ok, InitialZoneState, Config}.
 
@@ -180,12 +170,14 @@ handle_join(Msg, Session, State = #{ecs_world := World}) ->
     ID = ow_session:get_id(Session),
     Handle = maps:get(handle, Msg),
     logger:notice("Player ~p:~p has joined the server!", [Handle, ID]),
+    logger:notice("ECS World: ~p~n", [World]),
     % Add the handle to the player info
     PlayerInfo = #{handle => Handle},
     % Add the actor to the ECS
     Actor = ks_actor:new(Handle, ID, World),
     % Encode in network format
     ActorNetFmt = ow_netfmt:to_proto(Actor),
+    logger:notice("Actor in net format: ~p", [ActorNetFmt]),
     % Let everyone else know that the Player has joined
     ow_zone:broadcast(self(), {actor, ActorNetFmt}),
     % Build a reply to the player with information about actors who joined
@@ -240,15 +232,11 @@ handle_rpc(area_search, Msg, Session, State) ->
     #{range := Range} = Msg,
     Entity = ow_ecs2:entity(ID, World),
     #{pos_t := Pos} = ow_ecs2:get(kinematics, Entity),
-    PositionTuple = ow_vector:vector_tuple(Pos),
-    Results = ks_area:search(PositionTuple, Range, QuadTree, World),
+    Results = ks_area:search(Pos, Range, QuadTree, World),
     Reply = {{'@', [ID]}, {area_result, Results}},
     {Reply, ok, State}.
 
-handle_tick(TickMs, State = #{ecs_world := World}) ->
-    %State1 = update_gamestate(TickMs, State),
-    %Snapshot = gamestate_snapshot(State), % TODO
-    %#{gamestate_buffer := [ Snapshot | GSBuf ]} = State1,
+handle_tick(TickMs, State = #{ecs_world := World, frame := Frame}) ->
     % Call systems, feed in relevant zone data if necessary
     Start = erlang:system_time(),
     ZoneData = State,
@@ -268,7 +256,7 @@ handle_tick(TickMs, State = #{ecs_world := World}) ->
         collisions => ks_collision:notify(World)
     },
     Reply = {'@zone', {zone_snapshot, ToXfer}},
-    {Reply, State}.
+    {Reply, State#{frame := Frame + 1}}.
 
 %%%====================================================================
 %%% Internal Functions
@@ -278,6 +266,6 @@ handle_tick(TickMs, State = #{ecs_world := World}) ->
 init_environment() ->
     % Initialize the Environment.
     #{
-        max_vel_t => ?DEFAULT_MAX_VEL,
-        max_vel_r => ?DEFAULT_MAX_VEL
+        max_vel_t => ?DEFAULT_MAX_VELOCITY,
+        max_vel_r => ?DEFAULT_MAX_ROTATION
     }.
