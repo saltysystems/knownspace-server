@@ -6,13 +6,13 @@
 -define(DEFAULT_MODULES, #{
     omni => [
         {sprite, "omni"},
-        {thrust, <<10, 10, 10, 10>>},
+        {thrust, <<100, 100, 100, 100>>},
         {action, 'BALLISTIC'},
         {firing_arc, 'ARC_360'},
         {power, 10},
         {energy_capacity, 100},
-        {torque, 5000},
-        {mass, 1},
+        {torque, 1},
+        {mass, 10},
         {hitbox, [{-5, -5}, {5, -5}, {5, 5}, {-5, 5}]}
     ],
     rtg => [
@@ -58,7 +58,7 @@
     rocket => [
         {sprite, "engine"},
         {power, -3},
-        {thrust, <<0, 5, 0, 0>>},
+        {thrust, <<0, 100, 0, 0>>},
         {mass, 1},
         {hitbox, [{3, 3}, {-3, 3}, {-5, -5}, {5, -5}]}
     ],
