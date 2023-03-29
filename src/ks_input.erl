@@ -52,7 +52,6 @@ log_input(Input, ID, World) ->
     % Classify the input
     % Input can be a list of keys
     #{keys := Keys} = Input,
-    logger:notice("Adding input: ~p", [Keys]),
     % Fold over the list of keys this frame
     F = fun(KeyType, MapIn) ->
             Previous = maps:get(KeyType, MapIn, 0),
