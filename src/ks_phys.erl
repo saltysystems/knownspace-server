@@ -104,7 +104,7 @@ apply_impulse(Direction, Kinematics, Mass, Thrust) ->
     {Xa2, Ya2} = ow_vector:rotate(Acc, Rot),
     % Subtract (negative Y is up) from the original vector
     Acc1 = {Xa - Xa2, Ya - Ya2},
-    logger:notice("Rotated acceleration vector: ~p~n", [Acc1]),
+    %logger:notice("Rotated acceleration vector: ~p~n", [Acc1]),
     %logger:notice("Rotated acceleration: ~p~n", [{Xa2, Ya2}]),
     Kinematics#{acc_t := Acc1}.
 

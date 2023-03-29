@@ -146,8 +146,8 @@ init([]) ->
     {ok, W3} = ow_ecs2:add_system({ks_projectile, proc_projectile, 1}, 100, W2),
     {ok, W4} = ow_ecs2:add_system({ks_collision, proc_collision, 2}, 300, W3),
     %%ow_ecs:add_system({ks_collision_ray, proc_collision, 2}, 300, World),
-    {ok, W5} = ow_ecs2:add_system({ks_input, proc_reset, 1}, 900, W4),
-    {ok, W6} = ow_ecs2:add_system({ks_input, proc_debug, 2}, 900, W5),
+    {ok, W6} = ow_ecs2:add_system({ks_input, proc_reset, 1}, 900, W4),
+    %{ok, W6} = ow_ecs2:add_system({ks_input, proc_debug, 2}, 900, W5),
     % Configure the initial state
     TickMs = ?DEFAULT_TICK_RATE, 
     Config = #{tick_ms => TickMs},
