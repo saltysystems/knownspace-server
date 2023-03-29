@@ -39,16 +39,16 @@ enum arc {
 ///// SUB MESSAGES /////////////////////////////////////////
 ////////////////////////////////////////////////////////////
 message vector2 { 
-    required float x = 1;
-    required float y = 2;
+    required double x = 1;
+    required double y = 2;
 }
 
 message kinematics { 
     // TODO: Change to optional as needed. e.g., positions may not be needed
     // all the time.
-    required float   pos_r = 1;  // rotational position
-    required float   vel_r = 2;  // rotational velocity
-    required float   acc_r = 3;  // rotational acceleration
+    required double  pos_r = 1;  // rotational position
+    required double  vel_r = 2;  // rotational velocity
+    required double  acc_r = 3;  // rotational acceleration
     required vector2 pos_t = 4;  // translational position
     required vector2 vel_t = 5;  // translational velocity
     required vector2 acc_t = 6;  // translational acceleration
@@ -56,8 +56,8 @@ message kinematics {
 
 // instruct the client of the zone conditions
 message environment {
-    required float max_vel_t = 1; // vector2.length()
-    required float max_vel_r = 2; 
+    required double max_vel_t = 1; // vector2.length()
+    required double max_vel_r = 2; 
 }
 
 // instruct the client that the following entities collided
