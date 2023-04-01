@@ -84,7 +84,7 @@ rpc_info() ->
             opcode => ?KS_ZONE_SNAP,
             s2c_call => zone_snapshot,
             encoder => ks_pb,
-            qos => unsequenced,
+            qos => reliable,
             channel => 1
         },
         #{
@@ -170,14 +170,12 @@ handle_join(Msg, Session, State = #{ecs_world := World}) ->
     ID = ow_session:get_id(Session),
     Handle = maps:get(handle, Msg),
     logger:notice("Player ~p:~p has joined the server!", [Handle, ID]),
-    logger:notice("ECS World: ~p~n", [World]),
     % Add the handle to the player info
     PlayerInfo = #{handle => Handle},
     % Add the actor to the ECS
     Actor = ks_actor:new(Handle, ID, World),
     % Encode in network format
     ActorNetFmt = ow_netfmt:to_proto(Actor),
-    logger:notice("Actor in net format: ~p", [ActorNetFmt]),
     % Let everyone else know that the Player has joined
     ow_zone:broadcast(self(), {actor, ActorNetFmt}),
     % Build a reply to the player with information about actors who joined
