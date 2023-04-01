@@ -140,15 +140,15 @@ update_rotation([{ID, Components} | R], ZoneData, World) ->
     #{pos_r := RotP, vel_r := RotV} = Kinematics,
     DeltaT = TickMs / 1000,
     AngularMass = ow_ecs2:get(angular_mass, Components),
-    Thrust = ow_ecs2:get(thrust, Components),
+    Torque = ow_ecs2:get(torque, Components),
     RotationIncrement = Torque/AngularMass,
     PerShipMaxVelR = floor(MaxVelR/RotationIncrement) * RotationIncrement,
     RotV2 = 
         case RotV of
             _ when RotV < -PerShipMaxVelR ->
                 -PerShipMaxVelR;
-            _ when RotV > PerShipmaxVelR ->
-                PerShipMaxVelR
+            _ when RotV > PerShipMaxVelR ->
+                PerShipMaxVelR;
             _ -> 
                 RotV
         end,
