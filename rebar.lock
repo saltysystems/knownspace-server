@@ -8,7 +8,7 @@
   0},
  {<<"enet">>,
   {git,"https://github.com/saltysystems/enet.git",
-       {ref,"7bb67f36d5a6fe4dad7445684139ae3b0454c7c2"}},
+       {ref,"bfcbf617de401621b4d069393e768a0d697e23cb"}},
   1},
  {<<"erlquad">>,
   {git,"https://github.com/g-andrade/erlquad",
@@ -20,7 +20,7 @@
  {<<"meck">>,{pkg,<<"meck">>,<<"0.9.2">>},1},
  {<<"overworld">>,
   {git,"https://github.com/saltysystems/overworld.git",
-       {ref,"ed38c482b6b428eed4e05e23bd8ac4732da94ee1"}},
+       {ref,"b8ed1d95759ed8fc8a051cc4d65aa7b3f5fc582e"}},
   0},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.8.0">>},2}]}.
 [
