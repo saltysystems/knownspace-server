@@ -2,7 +2,7 @@
 
 -behaviour(gen_server).
 
--export([start/0, stop/0]).
+-export([start/1, stop/0]).
 
 % gen_server callbacks
 -export([
@@ -16,19 +16,19 @@
 
 % public API
 
-start() ->
-    gen_server:start({local, ?MODULE}, ?MODULE, [], []).
+start(Number) ->
+    gen_server:start(?MODULE, [Number], []).
 
 stop() ->
     gen_server:stop(?MODULE).
 
 %% callback implementation
 
-init([]) ->
+init([Number]) ->
     % Create a new Overworld session
     Session = ow_session:new(),
     S1 = ow_session:set_pid(self(), Session),
-    Handle = "a_derelict_ship#" ++ integer_to_list(rand:uniform(1000)),
+    Handle = "a_derelict_ship#" ++ integer_to_list(Number),
     State = #{
         % debug
         counter => 0,
@@ -53,20 +53,23 @@ handle_info({Who, zone_msg, {zone_transfer, _Msg}}, State) ->
     {noreply, State};
 handle_info({_Who, zone_msg, {zone_snapshot, _Msg}}, State) ->
     #{counter := C, session := S} = State,
-    case C rem 100 of
+    Keys = [ 'ROTATE_RIGHT', 'ROTATE_LEFT', 'IMPULSE_FWD', 'IMPULSE_REV' ],
+    Input = lists:nth(rand:uniform(length(Keys)), Keys),
+    case C rem 10 of
         0 ->
             % Do an area search
-            Msg = #{range => 100},
-            ks_zone2:area_search(Msg, S);
+            %Msg = #{range => 100},
+            %ks_zone2:area_search(Msg, S);
+            ks_zone2:input(#{ keys => [Input]},S);
         _ ->
             ok
     end,
     {noreply, State#{counter := C + 1}};
 handle_info({_Who, zone_msg, {actor, _Msg}}, State) ->
-    logger:notice("Handling a new actor message"),
+    %logger:notice("Handling a new actor message"),
     {noreply, State};
 handle_info({_Who, zone_msg, {part, _Msg}}, State) ->
-    logger:notice("Handling a part message"),
+    %logger:notice("Handling a part message"),
     {noreply, State};
 handle_info({_who, zone_msg, {area_result, Msg}}, #{session := S} = State) ->
     % Filter out myself
