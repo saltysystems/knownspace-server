@@ -116,11 +116,26 @@ message part {
     required sint64 id = 1;
 }
 
+// Clients may request information about an actor
+message actor_request {
+    required sint64 id = 1;
+}
+
 // Version 2: instruct the client to make a new actor
 message actor {
     required sint64 id     = 1; 
     required string handle = 2;
     required ship   ship   = 3;
+}
+
+// Client updates the server with its current target
+message target {
+    required sint64 id = 1;
+}
+
+// Server updates client with visible modules
+message target_info {
+    repeated vector2 grid_coords = 1;
 }
 
 // instruct the client to make a new projectile
@@ -150,7 +165,7 @@ message actor_updates {
 message zone_transfer {
     required uint32      tick_ms     = 1;
     required environment env         = 2;
-    repeated actor       entities    = 3;
+    repeated sint64      entities    = 3;
     repeated projectile  projectiles = 4;
 }
 
