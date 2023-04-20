@@ -1,17 +1,20 @@
 -module(ks_ship).
 
 -export([simple/2]).
--export([mini/2]).
+-export([normal/2]).
 -export([hauler/2]).
 
 simple(ID, World) ->
     ks_shipgrid:add({0, 0}, omni, 0, ID, World).
 
-mini(ID, World) ->
-    ks_shipgrid:add({1, 0}, rtg, 0, ID, World),
-    ks_shipgrid:add({1, 1}, rtg, 0, ID, World),
-    ks_shipgrid:add({1, 2}, gyroscope, 0, ID, World),
-    ks_shipgrid:add({1, 3}, rocket, 0, ID, World).
+normal(ID, World) ->
+    ks_shipgrid:add({0, 1}, beam, 0, ID, World),
+    ks_shipgrid:add({2, 1}, beam, 0, ID, World),
+    ks_shipgrid:add({0, 2}, gyroscope, 0, ID, World),
+    ks_shipgrid:add({1, 2}, rtg, 0, ID, World),
+    ks_shipgrid:add({2, 2}, gyroscope, 0, ID, World),
+    ks_shipgrid:add({0, 3}, rocket, 0, ID, World),
+    ks_shipgrid:add({2, 3}, rocket, 0, ID, World).
 
 hauler(ID, World) ->
     % Rightside
