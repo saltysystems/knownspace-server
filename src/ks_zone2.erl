@@ -15,8 +15,10 @@
     stop/0,
     join/2,
     part/1,
+    actor_request/2,
     input/2,
-    get_env/2
+    get_env/2,
+    target/2
 ]).
 
 % NPC functions
@@ -33,6 +35,8 @@
 -define(DEFAULT_BUFFER_DEPTH, 500).
 % Set the default max velocity in this zone
 -define(DEFAULT_MAX_VELOCITY, 300).
+% Set the default max visibility range, in px
+-define(DEFAULT_MAX_VISIBILITY, 10000).
 % Set the default max rotational velocity (in radians/sec)
 -define(DEFAULT_MAX_ROTATION, math:pi()/2).
 % Set the default tick rate in ms per tick
@@ -47,6 +51,9 @@
 -define(KS_ZONE_XFER, 16#2004).
 -define(KS_ZONE_SNAP, 16#2005).
 -define(KS_ZONE_ACTOR, 16#2010).
+-define(KS_ZONE_AREQ, 16#2011).
+-define(KS_ZONE_TARGET, 16#2012).
+-define(KS_ZONE_TINFO, 16#2013).
 
 rpc_info() ->
     [
@@ -84,16 +91,37 @@ rpc_info() ->
             opcode => ?KS_ZONE_SNAP,
             s2c_call => zone_snapshot,
             encoder => ks_pb,
-            qos => reliable,
+            qos => unsequenced,
             channel => 1
         },
+        #{ 
+            opcode => ?KS_ZONE_AREQ,
+            c2s_handler => {?MODULE, actor_request, 2},
+            encoder => ks_pb,
+            qos => reliable,
+            channel => 0
+         },
         #{
             opcode => ?KS_ZONE_ACTOR,
             s2c_call => actor,
             encoder => ks_pb,
             qos => reliable,
             channel => 0
-        }
+        },
+        #{
+            opcode => ?KS_ZONE_TARGET,
+            c2s_handler => {?MODULE, target, 2},
+            encoder => ks_pb,
+            qos => reliable,
+            channel => 0
+        },
+        #{
+            opcode => ?KS_ZONE_TINFO,
+            s2c_call => target_info,
+            encoder => ks_pb,
+            qos => reliable,
+            channel => 0
+         }
     ].
 
 %%%====================================================================
@@ -111,6 +139,7 @@ start() ->
 stop() ->
     ow_zone:stop(?SERVER).
 
+% TODO: Harden all public functions against bad inputs
 join(Msg, Session) ->
     ow_zone:join(?SERVER, Msg, Session).
 
@@ -126,6 +155,12 @@ input(Msg, Session) ->
             ow_zone:rpc(?SERVER, input, Msg, Session)
     end.
 
+actor_request(Msg, Session) ->
+    ow_zone:rpc(?SERVER, actor_request, Msg, Session).
+
+target(Msg, Session) ->
+    ow_zone:rpc(?SERVER, target, Msg, Session).
+  
 % Privileged RPCs (server-side)
 area_search(Msg, Session) ->
     ow_zone:rpc(?SERVER, area_search, Msg, Session).
@@ -133,6 +168,7 @@ area_search(Msg, Session) ->
 -spec get_env(atom(), map()) -> term().
 get_env(Key, #{env := Env}) ->
     maps:get(Key, Env, undefined).
+
 
 %%%====================================================================
 %%% Callbacks
@@ -145,8 +181,8 @@ init([]) ->
     {ok, W2} = ow_ecs2:add_system({ks_reactor, proc_reactor, 2}, 900, W1),
     {ok, W3} = ow_ecs2:add_system({ks_projectile, proc_projectile, 1}, 100, W2),
     {ok, W4} = ow_ecs2:add_system({ks_collision, proc_collision, 2}, 300, W3),
-    %%ow_ecs:add_system({ks_collision_ray, proc_collision, 2}, 300, World),
-    {ok, W6} = ow_ecs2:add_system({ks_input, proc_reset, 1}, 900, W4),
+    {ok, W5} = ow_ecs2:add_system({ks_visibility, proc_target_info, 2}, 800, W4),
+    {ok, W6} = ow_ecs2:add_system({ks_input, proc_reset, 1}, 900, W5),
     %{ok, W6} = ow_ecs2:add_system({ks_input, proc_debug, 2}, 900, W5),
     % Configure the initial state
     TickMs = ?DEFAULT_TICK_RATE, 
@@ -180,7 +216,9 @@ handle_join(Msg, Session, State = #{ecs_world := World}) ->
     ow_zone:broadcast(self(), {actor, ActorNetFmt}),
     % Build a reply to the player with information about actors who joined
     % before them.
-    Actors = ks_actor:get_all_net(World),
+    % TODO: Replace with nearby entities and let the player request the ones
+    % they want
+    Actors = lists:delete(ID, ks_actor:ids(World)),
     ZoneXfer = #{
         tick_ms => maps:get(tick_ms, State),
         env => maps:get(env, State),
@@ -219,9 +257,26 @@ handle_rpc(input, Msg, Session, State = #{ecs_world := World}) ->
     %ks_actor:update_latency(Latency, ID, World),
     ks_input:push(Msg, ID, World),
     {noreply, ok, State};
+handle_rpc(actor_request, Msg, Session, State = #{ecs_world := World}) ->
+    % Respond with info about the actor
+    ID = ow_session:get_id(Session),
+    % Actor may not exist by the time we get the request, but try to lookup and
+    % respond
+    EntityID = maps:get(id, Msg),
+    case ks_actor:get_net(EntityID, World) of
+        false ->
+            {noreply, ok, State};
+        Actor ->
+            Reply = {{'@', [ID]}, {actor, ow_netfmt:to_proto(Actor)}},
+            {Reply, ok, State}
+    end;
 handle_rpc(area_search, Msg, Session, State) ->
     % Internal RPCs - don't expose these to external clients without
     % considering the ramifications!
+    % Addendum: Maybe this is a natural way for clients to reduce the amount of
+    % neighbours they're quering for? I don't remember what the negative
+    % ramifications were.
+    % -- 
     % Get the boundary and ECS handle
     #{ecs_world := World, boundary := QuadTree} = State,
     % Should we really transmit the session
@@ -232,7 +287,14 @@ handle_rpc(area_search, Msg, Session, State) ->
     #{pos_t := Pos} = ow_ecs2:get(kinematics, Entity),
     Results = ks_area:search(Pos, Range, QuadTree, World),
     Reply = {{'@', [ID]}, {area_result, Results}},
-    {Reply, ok, State}.
+    {Reply, ok, State};
+handle_rpc(target, Msg, Session, #{ ecs_world := World } = State) ->
+    ID = ow_session:get_id(Session),
+    % TODO : Harden input handling
+    #{ target := Target } = Msg,
+    % Update the target information
+    ow_ecs2:add_component(target, Target, ID, World),
+    {noreply, ok, State}.
 
 handle_tick(TickMs, State = #{ecs_world := World, frame := Frame}) ->
     % Call systems, feed in relevant zone data if necessary
@@ -265,5 +327,6 @@ init_environment() ->
     % Initialize the Environment.
     #{
         max_vel_t => ?DEFAULT_MAX_VELOCITY,
-        max_vel_r => ?DEFAULT_MAX_ROTATION
+        max_vel_r => ?DEFAULT_MAX_ROTATION,
+        max_visibility => ?DEFAULT_MAX_VISIBILITY
     }.
