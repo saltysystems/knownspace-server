@@ -134,14 +134,15 @@ update_rotation([], _ZoneData, _World) ->
     ok;
 update_rotation([{ID, Components} | R], ZoneData, World) ->
     #{tick_ms := TickMs, env := Env} = ZoneData,
-    #{max_vel_r := MaxVelR } = Env,
+    #{max_vel_r := MaxVelR, torque_factor := TorqueFactor } = Env,
     % Now apply the physics
     Kinematics = ow_ecs2:get(kinematics, Components),
     #{pos_r := RotP, vel_r := RotV} = Kinematics,
     DeltaT = TickMs / 1000,
     AngularMass = ow_ecs2:get(angular_mass, Components),
     Torque = ow_ecs2:get(torque, Components),
-    RotationIncrement = Torque/AngularMass,
+    logger:notice("TorqueFactor: ~p~n", [TorqueFactor]),
+    RotationIncrement = (Torque*TorqueFactor)/AngularMass,
     PerShipMaxVelR = floor(MaxVelR/RotationIncrement) * RotationIncrement,
     RotV2 = 
         case RotV of
@@ -163,14 +164,16 @@ update_position([], _ZoneData, _World) ->
     ok;
 update_position([{ID, Components} | R], ZoneData, World) ->
     #{tick_ms := TickMs, env := Env} = ZoneData,
-    #{max_vel_t := MaxVel} = Env,
+    #{max_vel_t := MaxVel, acc_factor := AccFactor } = Env,
     % Now apply the physics
     Kinematics = ow_ecs2:get(kinematics, Components),
     #{pos_t := Pos0, vel_t := Vel0, acc_t := Acc0} = Kinematics,
     DeltaT = TickMs / 1000,
+    % Scale acceleration by the acceleration factor
+    Acc1 = ow_vector:scale(Acc0, AccFactor),
     % Calculate the new velocity
     % v = v0 + a*t
-    Vel = ow_vector:add(Vel0,ow_vector:scale(Acc0, DeltaT)),
+    Vel = ow_vector:add(Vel0,ow_vector:scale(Acc1, DeltaT)),
     % Fix the velocity to the environment maximum
     Vel1 =
         case ow_vector:length_squared(Vel) >= math:pow(MaxVel, 2) of

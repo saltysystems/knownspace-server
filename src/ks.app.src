@@ -5,6 +5,8 @@
     {mod, {ks_app, []}},
     {applications, [
         kernel,
+        erlquad,
+        enet,
         overworld,
         stdlib
     ]},

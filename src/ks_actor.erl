@@ -1,16 +1,17 @@
 -module(ks_actor).
 
--export([new/3, map/1, ids/1, rm/2, get_net/2, get_all_net/1, updates_net/1, update_latency/3]).
+-export([new/4, map/1, ids/1, rm/2, get_net/2, get_all_net/1, updates_net/1, update_latency/3]).
 
 -type id() :: ow_session:id().
 -type actor() :: {id(), [term()]}.
 -export_type([actor/0]).
 
--spec new(string(), integer(), atom()) -> map().
-new(Handle, ID, World) ->
+-spec new(string(), string(), integer(), atom()) -> map().
+new(Handle, ShipType, ID, World) ->
     % Create a new ship
-    Coords = {rand:uniform(1024), rand:uniform(1024)},
-    ks_shipgrid:new(Coords, normal, ID, Handle, World),
+    Coords = {rand:uniform(256), rand:uniform(256)},
+    ShipAtom = list_to_atom(ShipType),
+    ks_shipgrid:new(Coords, ShipAtom, ID, Handle, World),
     % Get the ship in network format
     Ship = ks_shipgrid:netformat(ID, World),
     % Add the handle

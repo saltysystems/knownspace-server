@@ -18,7 +18,8 @@
     actor_request/2,
     input/2,
     get_env/2,
-    target/2
+    target/2,
+    admin_reconfig/2
 ]).
 
 % NPC functions
@@ -41,6 +42,9 @@
 -define(DEFAULT_MAX_ROTATION, math:pi()/2).
 % Set the default tick rate in ms per tick
 -define(DEFAULT_TICK_RATE, 50).
+% Arbitrary scaling factors for torque and acceleration behaviour
+-define(DEFAULT_TORQUE_FACTOR, 1.0).
+-define(DEFAULT_ACC_FACTOR, 1.0).
 
 %% API
 
@@ -54,6 +58,7 @@
 -define(KS_ZONE_AREQ, 16#2011).
 -define(KS_ZONE_TARGET, 16#2012).
 -define(KS_ZONE_TINFO, 16#2013).
+-define(KS_ADMIN_RECONFIG, 16#2999).
 
 rpc_info() ->
     [
@@ -121,7 +126,15 @@ rpc_info() ->
             encoder => ks_pb,
             qos => reliable,
             channel => 0
-         }
+        },
+        #{
+            opcode => ?KS_ADMIN_RECONFIG,
+            c2s_handler => {?MODULE, admin_reconfig, 2},
+            s2c_call => admin_reconfig,
+            encoder => ks_pb,
+            qos => reliable,
+            channel => 0
+        }
     ].
 
 %%%====================================================================
@@ -160,6 +173,9 @@ actor_request(Msg, Session) ->
 
 target(Msg, Session) ->
     ow_zone:rpc(?SERVER, target, Msg, Session).
+
+admin_reconfig(Msg, Session) ->
+    ow_zone:rpc(?SERVER, admin_reconfig, Msg, Session).
   
 % Privileged RPCs (server-side)
 area_search(Msg, Session) ->
@@ -209,7 +225,8 @@ handle_join(Msg, Session, State = #{ecs_world := World}) ->
     % Add the handle to the player info
     PlayerInfo = #{handle => Handle},
     % Add the actor to the ECS
-    Actor = ks_actor:new(Handle, ID, World),
+    ShipType = maps:get(ship, Msg, "normal"),
+    Actor = ks_actor:new(Handle, ShipType, ID, World),
     % Encode in network format
     ActorNetFmt = ow_netfmt:to_proto(Actor),
     % Let everyone else know that the Player has joined
@@ -294,7 +311,15 @@ handle_rpc(target, Msg, Session, #{ ecs_world := World } = State) ->
     #{ target := Target } = Msg,
     % Update the target information
     ow_ecs2:add_component(target, Target, ID, World),
-    {noreply, ok, State}.
+    {noreply, ok, State};
+handle_rpc(admin_reconfig, Msg, _Session, #{ env := ZoneEnv } = State) ->
+    ReconfigEnv = maps:get(env, Msg, #{}),
+    NewEnv = maps:merge(ZoneEnv, ReconfigEnv),
+    Msg1 = #{
+             env => NewEnv
+            },
+    Reply = {'@zone', {admin_reconfig, Msg1}},
+    {Reply, ok, State#{ env => NewEnv}}.
 
 handle_tick(TickMs, State = #{ecs_world := World, frame := Frame}) ->
     % Call systems, feed in relevant zone data if necessary
@@ -328,5 +353,7 @@ init_environment() ->
     #{
         max_vel_t => ?DEFAULT_MAX_VELOCITY,
         max_vel_r => ?DEFAULT_MAX_ROTATION,
-        max_visibility => ?DEFAULT_MAX_VISIBILITY
+        max_visibility => ?DEFAULT_MAX_VISIBILITY,
+        acc_factor => ?DEFAULT_ACC_FACTOR,
+        torque_factor => ?DEFAULT_TORQUE_FACTOR
     }.

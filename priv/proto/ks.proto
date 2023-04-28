@@ -56,8 +56,11 @@ message kinematics {
 
 // instruct the client of the zone conditions
 message environment {
-    required double max_vel_t = 1; // vector2.length()
-    required double max_vel_r = 2; 
+    required double max_vel_t      = 1; // vector2.length()
+    required double max_vel_r      = 2; 
+    required double torque_factor  = 3;
+    required double acc_factor     = 4;
+    optional sint64 max_visibility = 5;
 }
 
 // instruct the client that the following entities collided
@@ -109,6 +112,7 @@ message ship {
 // instruct server to create a new player
 message join {
     required string handle = 1;
+    optional string ship   = 2;
 }
 
 // instruct clients to remove an actor from the zone
@@ -174,4 +178,8 @@ message zone_snapshot {
     repeated actor_updates actors      = 1;
     repeated projectile    projectiles = 2;
     repeated collision     collisions  = 3;
+}
+
+message admin_reconfig {
+    optional environment env = 1;
 }
