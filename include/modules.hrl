@@ -3,26 +3,37 @@
 %            - or -
 % << Left, Bottom, Right, Top >>
 
+-define(CELL_SIZE, 32).
+
 -define(DEFAULT_MODULES, #{
+    debug_special => [
+        {sprite, "default"},
+        {firing_arc, 'ARC_90'},
+        {damage, 10},
+        {thrust, [100, 100, 100, 100]},
+        {max_health, 100},
+        {mass, 10},
+        {torque, 1},
+        {hitbox, [{-5, -5}, {5, -5}, {5, 5}, {-5, 5}]}
+    ],
     beam => [
         {sprite, "beam"},
         {firing_arc, 'ARC_90'},
-        {action, 'HITSCAN'},
-        {power, -2},
+        {damage, 10},
+        {max_health, 100},
         {mass, 1},
         {hitbox, [{5, 5}, {-5, 5}, {0, -5}]}
     ],
     rtg => [
         {sprite, "reactor"},
-        {energy_capacity, 250},
-        {power, 15},
+        {max_health, 100},
         {mass, 2},
         {hitbox, [{-5, -5}, {5, -5}, {5, 5}, {-5, 5}]}
     ],
     rocket => [
         {sprite, "engine"},
-        {power, -3},
-        {thrust, <<0, 100, 0, 0>>},
+        {thrust, [0, 100, 0, 0]},
+        {max_health, 100},
         {mass, 1},
         {hitbox, [{3, 3}, {-3, 3}, {-5, -5}, {5, -5}]}
     ],
@@ -30,16 +41,16 @@
         {sprite, "gyroscope"},
         {mass, 1},
         {hitbox, [{-5, -5}, {5, -5}, {5, 5}, {-5, 5}]},
-        {power, -2},
+        {max_health, 100},
         {torque, 1000}
     ],
     cargo => [
         {sprite, "cargo"},
         {mass, 1},
+        {max_health, 100},
         {hitbox, [{-5, -5}, {5, -5}, {5, 5}, {-5, 5}]}
     ]
 }).
-
 
 %-define(DEFAULT_MODULES, #{
 %    omni => [
