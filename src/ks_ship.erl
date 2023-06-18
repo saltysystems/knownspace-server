@@ -5,6 +5,14 @@
 -export([broadside/2]).
 -export([ywing/2]).
 -export([hauler/2]).
+-export([station_special/2]).
+-export([debug_special/2]).
+
+station_special(ID, World) ->
+    ks_shipgrid:add({0,0}, station_special, 0, ID, World).
+
+debug_special(ID, World) ->
+    ks_shipgrid:add({0,0}, debug_special, 0, ID, World).
 
 % broken
 box(ID, World) ->
@@ -15,7 +23,7 @@ box(ID, World) ->
     % gyros
     ks_shipgrid:add({1, 1}, gyroscope, 0, ID, World),
     ks_shipgrid:add({-1, 1}, gyroscope, 0, ID, World),
-    % thrusters 
+    % thrusters
     ks_shipgrid:add({0, 1}, rocket, 0, ID, World),
     ks_shipgrid:add({0, -1}, rocket, 2, ID, World).
 
@@ -30,23 +38,23 @@ normal(ID, World) ->
 
 broadside(ID, World) ->
     % Leftside
-    ks_shipgrid:add({-1,1}, beam, 1, ID, World),
-    ks_shipgrid:add({-1,2}, beam, 1, ID, World),
-    ks_shipgrid:add({-1,3}, beam, 1, ID, World),
-    ks_shipgrid:add({-1,4}, beam, 1, ID, World),
-    ks_shipgrid:add({-1,5}, rocket, 0, ID, World),
+    ks_shipgrid:add({-1, 1}, beam, 1, ID, World),
+    ks_shipgrid:add({-1, 2}, beam, 1, ID, World),
+    ks_shipgrid:add({-1, 3}, beam, 1, ID, World),
+    ks_shipgrid:add({-1, 4}, beam, 1, ID, World),
+    ks_shipgrid:add({-1, 5}, rocket, 0, ID, World),
     % Middle
-    ks_shipgrid:add({0,1}, rocket, 3, ID, World),
-    ks_shipgrid:add({0,2}, rtg, 0, ID, World),
-    ks_shipgrid:add({0,3}, gyroscope, 0, ID, World),
-    ks_shipgrid:add({0,4}, gyroscope, 0, ID, World),
-    ks_shipgrid:add({0,5}, cargo, 0, ID, World),
+    ks_shipgrid:add({0, 1}, rocket, 3, ID, World),
+    ks_shipgrid:add({0, 2}, rtg, 0, ID, World),
+    ks_shipgrid:add({0, 3}, gyroscope, 0, ID, World),
+    ks_shipgrid:add({0, 4}, gyroscope, 0, ID, World),
+    ks_shipgrid:add({0, 5}, cargo, 0, ID, World),
     % Rightside
-    ks_shipgrid:add({1,1}, beam, 3, ID, World),
-    ks_shipgrid:add({1,2}, beam, 3, ID, World),
-    ks_shipgrid:add({1,3}, beam, 3, ID, World),
-    ks_shipgrid:add({1,4}, beam, 3, ID, World),
-    ks_shipgrid:add({1,5}, rocket, 0, ID, World).
+    ks_shipgrid:add({1, 1}, beam, 3, ID, World),
+    ks_shipgrid:add({1, 2}, beam, 3, ID, World),
+    ks_shipgrid:add({1, 3}, beam, 3, ID, World),
+    ks_shipgrid:add({1, 4}, beam, 3, ID, World),
+    ks_shipgrid:add({1, 5}, rocket, 0, ID, World).
 
 %ywing(ID, World) ->
 %    % Center
@@ -79,7 +87,6 @@ ywing(ID, World) ->
     ks_shipgrid:add({-1, 2}, cargo, 1, ID, World),
     ks_shipgrid:add({-1, 3}, gyroscope, 0, ID, World),
     ks_shipgrid:add({-1, 4}, rocket, 0, ID, World).
-
 
 hauler(ID, World) ->
     % Rightside

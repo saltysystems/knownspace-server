@@ -9,7 +9,7 @@
 -spec new(string(), string(), integer(), atom()) -> map().
 new(Handle, ShipType, ID, World) ->
     % Create a new ship
-    Coords = {rand:uniform(256), rand:uniform(256)},
+    Coords = {0,0}, % this shouldn't even be here tbh
     ShipAtom = list_to_atom(ShipType),
     ks_shipgrid:new(Coords, ShipAtom, ID, Handle, World),
     % Get the ship in network format
@@ -27,12 +27,14 @@ rm(ID, World) ->
 
 get_net(ID, World) ->
     case ow_ecs2:try_component(actor, ID, World) of
-        false -> false;
-        Components -> 
-            #{ id => ID,
-               handle => ow_ecs2:get(handle, Components, unknown),
-               ship => ks_shipgrid:get(ID, World)
-             }
+        false ->
+            false;
+        Components ->
+            #{
+                id => ID,
+                handle => ow_ecs2:get(handle, Components, "unknown"),
+                ship => ks_shipgrid:get(ID, World)
+            }
     end.
 
 get_all_net(World) ->
@@ -41,7 +43,7 @@ get_all_net(World) ->
         fun({ID, Components}, AccIn) ->
             A = #{
                 id => ID,
-                handle => ow_ecs2:get(handle, Components, unknown),
+                handle => ow_ecs2:get(handle, Components, "unknown"),
                 ship => ks_shipgrid:get(ID, World)
             },
             [ow_netfmt:to_proto(A) | AccIn]
@@ -64,9 +66,9 @@ updates_net(World) ->
 ids(World) ->
     % Get all actor IDs
     Actors = ow_ecs2:match_component(actor, World),
-    F = 
+    F =
         fun({ID, _Components}, AccIn) ->
-                [ID|AccIn]
+            [ID | AccIn]
         end,
     lists:foldl(F, [], Actors).
 

@@ -11,6 +11,7 @@
     del_grid/2,
     add/5,
     match_subcomponents/3,
+    subcomponent_pos_t/2,
     map_cells/2,
     cell/3,
     netformat/2,
@@ -18,8 +19,6 @@
 ]).
 
 -include("modules.hrl").
-% px
--define(CELL_SIZE, 32).
 
 -opaque shipgrid() :: {map(), integer(), atom()}.
 -export_type([shipgrid/0]).
@@ -41,11 +40,11 @@ new(Coordinates, Type, ID, Handle, World) ->
     Kinematics =
         #{
             pos_t => Coordinates,
-            vel_t => {0, 0},
-            acc_t => {0, 0},
-            pos_r => 0,
-            vel_r => 0,
-            acc_r => 0
+            vel_t => {0.0, 0.0},
+            acc_t => {0.0, 0.0},
+            pos_r => 0.0,
+            vel_r => 0.0,
+            acc_r => 0.0
         },
     ow_ecs2:add_component(kinematics, Kinematics, ID, World),
     % Return the final grid
@@ -102,28 +101,26 @@ add(Coords, Type, Rotation, ParentID, World) ->
             % Recalculate center of mass, thrust, etc. This may need to be a
             % fun with callbacks as it grows. Can't predict what properties
             % need to be present at the macro level
-            % Get the current reactor stats before updating
-            CurReactor = ow_ecs2:get(reactor, Data, ks_reactor:new()),
-            Reactor = reactor(CurReactor, ParentID, World),
             % Calculate the thrust parameters for each cardinal direction
             Thrust = thrust(ParentID, World),
             % Calculate the torque provided by the gyroscope.
             Torque = torque(ParentID, World),
             % Calculate the ship's hull for collision detection operations.
             Hull = graham_hull(ParentID, World),
+            FullHull = full_hull(ParentID, World),
             % Calculate the moments (mass, center of mass, angular mass)
             Mass = mass(ParentID, World),
             CenterOfMass = center_of_mass(ParentID, World),
             AngularMass = moment_of_inertia(CenterOfMass, ParentID, World),
             % Pass another update to the entity with derived properties
             Components2 = [
-                {reactor, Reactor},
                 {thrust, Thrust},
                 {mass, Mass},
                 {center_of_mass, CenterOfMass},
                 {angular_mass, AngularMass},
                 {torque, Torque},
-                {hull, Hull}
+                {hull, Hull},
+                {full_hull, FullHull}
             ],
             ow_ecs2:add_components(Components2, ParentID, World)
     end.
@@ -132,6 +129,18 @@ add(Coords, Type, Rotation, ParentID, World) ->
 %E = ow_ecs2:entity(ParentID, World),
 %FinalGrid = ow_ecs2:get(shipgrid, E),
 %{FinalGrid, ParentID, World}.
+
+subcomponent_pos_t(ChildComponents, World) ->
+    ParentID = ow_ecs2:get(parent, ChildComponents),
+    ParentComponents = ow_ecs2:entity(ParentID, World),
+    Kinematics = ow_ecs2:get(kinematics, ParentComponents),
+    #{ pos_t := Pos } = Kinematics,
+    % Translate the module by its cell position
+    Cell = ow_ecs2:get(grid_coords, ChildComponents),
+    ScaledCell = ow_vector:scale(Cell, ?CELL_SIZE),
+    [SubcomponentPos] = ow_vector:translate([ScaledCell], Pos),
+    SubcomponentPos.
+
 
 match_subcomponents(Component, ParentID, World) ->
     case ow_ecs2:try_component(children, ParentID, World) of
@@ -254,72 +263,45 @@ graham_hull(ID, World) ->
     Vertices = lists:sort(lists:flatten(DeepVertices)),
     ow_vector:convex_hull(Vertices).
 
-%hull(ID, World) ->
-%    % This function calculates an outer hull of a collection of 2D polygons
-%    % which start out semi-triangularized. By detecting shared edges and
-%    % deleting them, we are left with only edges that are on the outside of the
-%    % ship.
-%    % --
-%    % First grab all components on the ship that have a hitbox.
-%    WithHitboxes = match_subcomponents(hitbox, ID, World),
-%    % Construct a map of edges with the ID of the child component holding the
-%    % edge. This map will be fed into collision detection.
-%    F = fun(ComponentList, AccIn) ->
-%        % Get child ID we inject into the component list
-%        ChildID = ow_ecs2:get(id, ComponentList),
-%        % Get the hitbox
-%        Hitbox = ow_ecs2:get(hitbox, ComponentList),
-%        % Scale the cell by px-per-cell
-%        Cell = ow_ecs2:get(grid_coords, ComponentList),
-%        ScaledCell = ow_vector:scale(Cell, ?CELL_SIZE),
-%        % Translate the hitbox by the scaled position
-%        THB = ow_vector:translate(Hitbox, ScaledCell),
-%        % Calculate edges
-%        Edges = ow_vector:edges(THB),
-%        G = fun(Edge, Acc) ->
-%            % Sort edges as vertices can appear in any order.
-%            % TODO: Need to consider whether the vertex order needs to
-%            %       be preserved in the final output
-%            SortEdge = lists:sort(Edge),
-%            % If a duplicate edge is detected, delete it as it must be
-%            % a shared edge
-%            case maps:is_key(SortEdge, Acc) of
-%                true ->
-%                    maps:remove(SortEdge, Acc);
-%                false ->
-%                    Acc#{SortEdge => ChildID}
-%            end
-%        end,
-%        lists:foldl(G, AccIn, Edges)
-%    end,
-%    lists:foldl(F, #{}, WithHitboxes).
-
-reactor(#{now := Cur}, ID, World) ->
-    % Rate at which power is generated
-    WithPower = match_subcomponents(power, ID, World),
-    F0 = fun(ComponentList, AccIn) ->
-        Pow = ow_ecs2:get(power, ComponentList),
-        Pow + AccIn
-    end,
-    Power = lists:foldl(F0, 0, WithPower),
-    WithCapacity = match_subcomponents(energy_capacity, ID, World),
-    F1 = fun(ComponentList, AccIn) ->
-        Cap = ow_ecs2:get(energy_capacity, ComponentList),
-        Cap + AccIn
-    end,
-    Capacity = lists:foldl(F1, 0, WithCapacity),
-    Current =
-        if
-            Cur > Capacity ->
-                Capacity;
-            true ->
-                Cur
+full_hull(ID, World) ->
+    % This function calculates an outer hull of a collection of 2D polygons
+    % which start out semi-triangularized. By detecting shared edges and
+    % deleting them, we are left with only edges that are on the outside of the
+    % ship.
+    % --
+    % First grab all components on the ship that have a hitbox.
+    WithHitboxes = match_subcomponents(hitbox, ID, World),
+    % Construct a map of edges with the ID of the child component holding the
+    % edge. This map will be fed into collision detection.
+    F = fun(ComponentList, AccIn) ->
+        % Get child ID we inject into the component list
+        ChildID = ow_ecs2:get(id, ComponentList),
+        % Get the hitbox
+        Hitbox = ow_ecs2:get(hitbox, ComponentList),
+        % Scale the cell by px-per-cell
+        Cell = ow_ecs2:get(grid_coords, ComponentList),
+        ScaledCell = ow_vector:scale(Cell, ?CELL_SIZE),
+        % Translate the hitbox by the scaled position
+        THB = ow_vector:translate(Hitbox, ScaledCell),
+        % Calculate edges
+        Edges = ow_vector:edges(THB),
+        G = fun(Edge, Acc) ->
+            % Sort edges as vertices can appear in any order.
+            % TODO: Need to consider whether the vertex order needs to
+            %       be preserved in the final output
+            SortEdge = lists:sort(Edge),
+            % If a duplicate edge is detected, delete it as it must be
+            % a shared edge
+            case maps:is_key(SortEdge, Acc) of
+                true ->
+                    maps:remove(SortEdge, Acc);
+                false ->
+                    Acc#{SortEdge => ChildID}
+            end
         end,
-    #{
-        now => Current,
-        max => Capacity,
-        rate => Power
-    }.
+        lists:foldl(G, AccIn, Edges)
+    end,
+    lists:foldl(F, #{}, WithHitboxes).
 
 thrust(ID, World) ->
     WithThrust = match_subcomponents(thrust, ID, World),
@@ -327,11 +309,16 @@ thrust(ID, World) ->
         Thrust = ow_ecs2:get(thrust, ComponentList),
         Orientation = ow_ecs2:get(orientation, ComponentList),
         RotatedThrust = rotate_ccw(Thrust, Orientation),
-        TempList = binary:bin_to_list(RotatedThrust),
+        TempList = RotatedThrust,
         lists:zipwith(fun(X, Y) -> X + Y end, TempList, AccIn)
     end,
     CalculatedThrust = lists:foldl(F, [0, 0, 0, 0], WithThrust),
-    binary:list_to_bin(CalculatedThrust).
+    [Left,Bottom,Right,Top] = CalculatedThrust,
+    #{ left => Left, 
+       bottom => Bottom,
+       right => Right, 
+       top => Top
+     }.
 
 % TODO: write a generic "sum component" fun?
 torque(ID, World) ->
@@ -393,8 +380,8 @@ get(ID, World) ->
     CenterOfMass = ow_ecs2:get(center_of_mass, Components),
     Thrust = ow_ecs2:get(thrust, Components),
     Torque = ow_ecs2:get(torque, Components),
-    Reactor = ow_ecs2:get(reactor, Components),
     Hull = ow_ecs2:get(hull, Components),
+    FullHull = ow_ecs2:get(full_hull, Components),
     Cells = cells(ID, World),
     #{
         kinematics => Kinematics,
@@ -402,8 +389,8 @@ get(ID, World) ->
         angular_mass => AngularMass,
         mass => Mass,
         hull => Hull,
+        full_hull => FullHull,
         torque => Torque,
-        reactor => Reactor,
         thrust => Thrust,
         cells => Cells
     }.
@@ -415,7 +402,6 @@ netformat(ID, World) ->
     AngularMass = ow_ecs2:get(angular_mass, Components),
     CenterOfMass = ow_ecs2:get(center_of_mass, Components),
     Hull = ow_netfmt:vec2map(ow_ecs2:get(hull, Components)),
-    Reactor = ow_ecs2:get(reactor, Components),
     Thrust = ow_ecs2:get(thrust, Components),
     Torque = ow_ecs2:get(torque, Components),
     Cells = map_cells(ID, World),
@@ -426,7 +412,6 @@ netformat(ID, World) ->
         mass => Mass,
         hull => Hull,
         torque => Torque,
-        reactor => Reactor,
         thrust => Thrust,
         cells => Cells
     }.
@@ -456,21 +441,14 @@ rotate_cw(List, N) when N < 0 ->
     rotate_ccw(List, -N);
 rotate_cw(List, 0) ->
     List;
-rotate_cw(<<H:8, T/binary>>, Rotations) ->
-    rotate_cw(<<T/binary, H:8>>, Rotations - 1).
+rotate_cw([H | T], Rotations) ->
+    rotate_cw(T ++ [H], Rotations - 1).
 
 rotate_ccw(List, N) when N < 0 ->
     rotate_cw(List, -N);
 rotate_ccw(List, 0) ->
     List;
-rotate_ccw(Bin, Rotations) ->
-    <<Head:8, Tail/binary>> = rev(Bin),
-    Rev = rev(Tail),
-    rotate_ccw(<<Head, Rev/binary>>, Rotations - 1).
-
-%  from
-%  https://stackoverflow.com/questions/20830201/better-way-to-reverse-binary
-rev(Binary) ->
-    Size = erlang:bit_size(Binary),
-    <<X:Size/integer-little>> = Binary,
-    <<X:Size/integer-big>>.
+rotate_ccw(List, Rotations) ->
+    [H|T] = lists:reverse(List),
+    Rev = lists:reverse(T),
+    rotate_ccw([H | Rev], Rotations - 1).

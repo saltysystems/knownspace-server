@@ -35,6 +35,10 @@ init([]) ->
         #{
             id => "ks_zone2",
             start => {ks_zone2, start, []}
+        },
+        #{
+            id => "ks_input_comp",
+            start => {ks_input_comp, start_link, []}
         }
     ],
     {ok, {SupFlags, ChildSpecs}}.
