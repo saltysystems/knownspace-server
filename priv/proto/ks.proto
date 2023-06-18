@@ -17,11 +17,6 @@ enum input_type {
     ACTION_0      = 10;
 }
 
-enum action_type {
-    BALLISTIC = 0;
-    HITSCAN   = 1;
-}
-
 // Create fixed arcs for weapons. Can't be an optional float thanks to some
 // gdscript brokenness. Revisit.
 // https://github.com/godotengine/godot-proposals/issues/162
@@ -48,17 +43,25 @@ message kinematics {
     // all the time.
     required double  pos_r = 1;  // rotational position
     required double  vel_r = 2;  // rotational velocity
-    required double  acc_r = 3;  // rotational acceleration
-    required vector2 pos_t = 4;  // translational position
-    required vector2 vel_t = 5;  // translational velocity
-    required vector2 acc_t = 6;  // translational acceleration
+    required vector2 pos_t = 3;  // translational position
+    required vector2 vel_t = 4;  // translational velocity
+    // higher order vectors unnecessary here
+    //required double  acc_r = 5;  // rotational acceleration
+    //required vector2 acc_t = 6;  // translational acceleration
+}
+
+message thrust {
+    required uint32 top    = 1;
+    required uint32 bottom = 2;
+    required uint32 left   = 3;
+    required uint32 right  = 4;
 }
 
 // instruct the client of the zone conditions
 message environment {
     required double max_vel_t      = 1; // vector2.length()
     required double max_vel_r      = 2; 
-    required double torque_factor  = 3;
+    required double racc_factor    = 3;
     required double acc_factor     = 4;
     optional sint64 max_visibility = 5;
 }
@@ -72,14 +75,7 @@ message collision {
 ///// SHIPS & COMPONENTS ///////////////////////////////////
 ////////////////////////////////////////////////////////////
 
-// macro-level description of the reactor
-message reactor {
-    required uint32 max  = 1;
-    required uint32 now  = 2;
-    required uint32 rate = 3;
-}
-
-// Send relevant data only - derived data (e.g., overall thrust, reactor stats,
+// Send relevant data only - derived data (e.g., overall thrust, 
 // etc) will be sent directly from the server
 message cell {
     // Cell position
@@ -88,7 +84,6 @@ message cell {
     required uint32      orientation  = 3;
     optional string      sprite       = 4; // Sprite used by the cell
     optional arc         firing_arc   = 5; // Firing arc of any weapons, if app
-    optional action_type action       = 6; // Action type, if applicable
     repeated vector2     hitbox       = 7; // Hitbox, if applicable
 }
 
@@ -99,15 +94,31 @@ message ship {
     required vector2    center_of_mass = 3; // center of mass
     required float      angular_mass   = 4; // moment of inertia
     required float      torque         = 5;
-    required bytes      thrust         = 6; // <Left,Bottom,Right,Top>
-    required reactor    reactor        = 7; // ship's reactor
-    repeated cell       cells          = 8; // modules
-    repeated vector2    hull           = 9; // convex hull
+    required thrust     thrust         = 6;
+    repeated cell       cells          = 7; // modules
+    repeated vector2    hull           = 8; // convex hull
 }
 
 ////////////////////////////////////////////////////////////
 ///// TOP-LEVEL MESSAGES ///////////////////////////////////
 ////////////////////////////////////////////////////////////
+
+message ks {
+    oneof msg {
+        join           join           = 1;
+        part           part           = 2;
+        actor_request  actor_request  = 3;
+        actor          actor          = 4;
+        target         target         = 5;
+        target_info    target_info    = 6;
+        projectile     projectile     = 7;
+        input          input          = 8;
+        actor_updates  actor_updates  = 9;
+        zone_transfer  zone_transfer  = 10;
+        zone_snapshot  zone_snapshot  = 11;
+        admin_reconfig admin_reconfig = 12;
+    }
+}
 
 // instruct server to create a new player
 message join {
@@ -139,7 +150,9 @@ message target {
 
 // Server updates client with visible modules
 message target_info {
-    repeated vector2 grid_coords = 1;
+    repeated sint64  cell_id    = 1;
+    repeated vector2 rays       = 2;
+    optional vector2 ray_origin = 3;
 }
 
 // instruct the client to make a new projectile
@@ -153,10 +166,9 @@ message projectile {
 
 // player intent for this tick
 message input {
-    // would it be faster/more compact to have a bitfield? probably once the
-    // game is better understood
-    repeated input_type keys   = 1;
-    optional vector2    cursor = 2;
+    required uint64     frame  = 1;
+    repeated input_type keys   = 2;
+    optional vector2    cursor = 3;
 }
 
 // per-tick updates on the physics for every actor
@@ -165,12 +177,14 @@ message actor_updates {
     required kinematics kinematics = 2;
 }
 
-// Send a full state transfer to a client when joining
+// Send a full state transfer to a client when joining including the server's
+// frame number for synchronization
 message zone_transfer {
-    required uint32      tick_ms     = 1;
-    required environment env         = 2;
-    repeated sint64      entities    = 3;
-    repeated projectile  projectiles = 4;
+    required uint64      frame       = 1; 
+    required uint32      tick_ms     = 2;
+    required environment env         = 3;
+    repeated sint64      entities    = 4;
+    repeated projectile  projectiles = 5;
 }
 
 // (frequently) transfer the current gamestate to clients
